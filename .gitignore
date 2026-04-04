@@ -1,0 +1,8 @@
+.cache
+build
+
+subprojects/*
+!subprojects/*.wrap
+
+subprojects/fpng.wrap
+subprojects/wuffs.wrap

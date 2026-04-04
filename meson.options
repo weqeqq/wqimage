@@ -1,0 +1,15 @@
+
+option('simd',
+  type: 'feature',
+  value: 'auto',
+  description: 'Enable SIMD acceleration via Google Highway')
+
+option('tests', 
+  type: 'feature',
+  value: 'auto',
+  description: 'Enable tests')
+
+option('install',
+  type: 'boolean',
+  value: true,
+  description: 'Install library, headers, and pkg-config metadata')

@@ -1,0 +1,6 @@
+[wrap-git]
+url = https://github.com/weqeqq/wqfile.git
+revision = ce9132f04272abde7a56549b4086ce5de13806f9
+
+[provide]
+wqfile = wqfile_dep

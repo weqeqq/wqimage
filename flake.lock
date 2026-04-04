@@ -1,0 +1,266 @@
+{
+  "nodes": {
+    "fpng": {
+      "inputs": {
+        "nixpkgs": [
+          "wqpng",
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1775317692,
+        "narHash": "sha256-wdfSFMc98t+Rr3ZxWxfkCzezvvgKXS4ZgNZXaYThgaE=",
+        "owner": "weqeqq",
+        "repo": "fpng",
+        "rev": "6a8bb9e6971082a60b10ae4e14d6115d1eda85b0",
+        "type": "github"
+      },
+      "original": {
+        "owner": "weqeqq",
+        "repo": "fpng",
+        "type": "github"
+      }
+    },
+    "nixpkgs": {
+      "locked": {
+        "lastModified": 1775036866,
+        "narHash": "sha256-ZojAnPuCdy657PbTq5V0Y+AHKhZAIwSIT2cb8UgAz/U=",
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "6201e203d09599479a3b3450ed24fa81537ebc4e",
+        "type": "github"
+      },
+      "original": {
+        "owner": "NixOS",
+        "ref": "nixos-unstable",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
+    "root": {
+      "inputs": {
+        "nixpkgs": "nixpkgs",
+        "wqcolor": "wqcolor",
+        "wqfile": "wqfile",
+        "wqparallel": "wqparallel_2",
+        "wqpng": "wqpng"
+      }
+    },
+    "wqcolor": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs"
+        ],
+        "wqparallel": "wqparallel"
+      },
+      "locked": {
+        "lastModified": 1775320463,
+        "narHash": "sha256-wSA+49+zaqh9pRTSd47yInv/WfsWWV9Sdyc6jEECM+0=",
+        "owner": "weqeqq",
+        "repo": "wqcolor",
+        "rev": "d79cbecb20f104b8eccf2198b9aaf426be6a09f4",
+        "type": "github"
+      },
+      "original": {
+        "owner": "weqeqq",
+        "repo": "wqcolor",
+        "type": "github"
+      }
+    },
+    "wqcolor_2": {
+      "inputs": {
+        "nixpkgs": [
+          "wqpng",
+          "nixpkgs"
+        ],
+        "wqparallel": "wqparallel_3"
+      },
+      "locked": {
+        "lastModified": 1775320463,
+        "narHash": "sha256-wSA+49+zaqh9pRTSd47yInv/WfsWWV9Sdyc6jEECM+0=",
+        "owner": "weqeqq",
+        "repo": "wqcolor",
+        "rev": "d79cbecb20f104b8eccf2198b9aaf426be6a09f4",
+        "type": "github"
+      },
+      "original": {
+        "owner": "weqeqq",
+        "repo": "wqcolor",
+        "type": "github"
+      }
+    },
+    "wqfile": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1775317069,
+        "narHash": "sha256-vBb8N64SDZk425tJkx2ALz7JWvljD7s3M42azcgcqY8=",
+        "owner": "weqeqq",
+        "repo": "wqfile",
+        "rev": "ce9132f04272abde7a56549b4086ce5de13806f9",
+        "type": "github"
+      },
+      "original": {
+        "owner": "weqeqq",
+        "repo": "wqfile",
+        "type": "github"
+      }
+    },
+    "wqfile_2": {
+      "inputs": {
+        "nixpkgs": [
+          "wqpng",
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1775317069,
+        "narHash": "sha256-vBb8N64SDZk425tJkx2ALz7JWvljD7s3M42azcgcqY8=",
+        "owner": "weqeqq",
+        "repo": "wqfile",
+        "rev": "ce9132f04272abde7a56549b4086ce5de13806f9",
+        "type": "github"
+      },
+      "original": {
+        "owner": "weqeqq",
+        "repo": "wqfile",
+        "type": "github"
+      }
+    },
+    "wqparallel": {
+      "inputs": {
+        "nixpkgs": [
+          "wqcolor",
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1775245080,
+        "narHash": "sha256-nC/JBp5teUTC/O01IQMxd7UuvSgeO+HPxXVDftNTiZo=",
+        "owner": "weqeqq",
+        "repo": "wqparallel",
+        "rev": "a1528d22f9fb319b855e0ebe3d2527fc764217ef",
+        "type": "github"
+      },
+      "original": {
+        "owner": "weqeqq",
+        "repo": "wqparallel",
+        "type": "github"
+      }
+    },
+    "wqparallel_2": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1775245080,
+        "narHash": "sha256-nC/JBp5teUTC/O01IQMxd7UuvSgeO+HPxXVDftNTiZo=",
+        "owner": "weqeqq",
+        "repo": "wqparallel",
+        "rev": "a1528d22f9fb319b855e0ebe3d2527fc764217ef",
+        "type": "github"
+      },
+      "original": {
+        "owner": "weqeqq",
+        "repo": "wqparallel",
+        "type": "github"
+      }
+    },
+    "wqparallel_3": {
+      "inputs": {
+        "nixpkgs": [
+          "wqpng",
+          "wqcolor",
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1775245080,
+        "narHash": "sha256-nC/JBp5teUTC/O01IQMxd7UuvSgeO+HPxXVDftNTiZo=",
+        "owner": "weqeqq",
+        "repo": "wqparallel",
+        "rev": "a1528d22f9fb319b855e0ebe3d2527fc764217ef",
+        "type": "github"
+      },
+      "original": {
+        "owner": "weqeqq",
+        "repo": "wqparallel",
+        "type": "github"
+      }
+    },
+    "wqparallel_4": {
+      "inputs": {
+        "nixpkgs": [
+          "wqpng",
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1775245080,
+        "narHash": "sha256-nC/JBp5teUTC/O01IQMxd7UuvSgeO+HPxXVDftNTiZo=",
+        "owner": "weqeqq",
+        "repo": "wqparallel",
+        "rev": "a1528d22f9fb319b855e0ebe3d2527fc764217ef",
+        "type": "github"
+      },
+      "original": {
+        "owner": "weqeqq",
+        "repo": "wqparallel",
+        "type": "github"
+      }
+    },
+    "wqpng": {
+      "inputs": {
+        "fpng": "fpng",
+        "nixpkgs": [
+          "nixpkgs"
+        ],
+        "wqcolor": "wqcolor_2",
+        "wqfile": "wqfile_2",
+        "wqparallel": "wqparallel_4",
+        "wuffs": "wuffs"
+      },
+      "locked": {
+        "lastModified": 1775323377,
+        "narHash": "sha256-vOY6xIFykSbS+5RusqWNV22tQoqJkkaZerJ6wDi1Y7c=",
+        "owner": "weqeqq",
+        "repo": "wqpng",
+        "rev": "8f0ccd7407b73d53f24a418fe204664165f45477",
+        "type": "github"
+      },
+      "original": {
+        "owner": "weqeqq",
+        "repo": "wqpng",
+        "type": "github"
+      }
+    },
+    "wuffs": {
+      "inputs": {
+        "nixpkgs": [
+          "wqpng",
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1775315314,
+        "narHash": "sha256-cfzJD9H+BLfObBtJvsawpQnafNAAPVSfInnaJJPBWOA=",
+        "owner": "weqeqq",
+        "repo": "wuffs",
+        "rev": "2511f40290a57d437af9ae6136370954a1ac270c",
+        "type": "github"
+      },
+      "original": {
+        "owner": "weqeqq",
+        "repo": "wuffs",
+        "type": "github"
+      }
+    }
+  },
+  "root": "root",
+  "version": 7
+}

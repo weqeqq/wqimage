@@ -1,0 +1,26 @@
+WQIMAGE_0 {
+  global:
+    extern "C++" {
+      weqeqq::image::Decode*;
+      weqeqq::image::Encode*;
+      weqeqq::image::ConvertColor*;
+      weqeqq::image::PremultiplyInPlace*;
+      weqeqq::image::UnpremultiplyInPlace*;
+      weqeqq::image::BlendInPlace*;
+
+      *weqeqq::image::Error*;
+      *weqeqq::image::DecodingError*;
+      *weqeqq::image::EncodingError*;
+      *weqeqq::image::PngEncodingError*;
+      *weqeqq::image::BufferError*;
+      *weqeqq::image::BufferNotInitializedError*;
+      *weqeqq::image::BufferIndexOutOfRangeError*;
+      *weqeqq::image::BufferOverflowError*;
+      *weqeqq::image::BufferInvalidSizeError*;
+      *weqeqq::image::BufferDataSizeMismatchError*;
+      *weqeqq::image::BufferInvariantError*;
+    };
+
+  local:
+    *;
+};

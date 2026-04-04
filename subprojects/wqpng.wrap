@@ -1,0 +1,6 @@
+[wrap-git]
+url = https://github.com/weqeqq/wqpng.git
+revision = 8f0ccd7407b73d53f24a418fe204664165f45477
+
+[provide]
+wqpng = wqpng_dep

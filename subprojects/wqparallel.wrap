@@ -1,0 +1,6 @@
+[wrap-git]
+url = https://github.com/weqeqq/wqparallel.git
+revision = a1528d22f9fb319b855e0ebe3d2527fc764217ef
+
+[provide]
+wqparallel = wqparallel_dep
