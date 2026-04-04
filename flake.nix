@@ -54,7 +54,6 @@
               ./meson.build
               ./meson.options
               ./sources
-              ./subprojects/.wraplock
               ./subprojects/gtest.wrap
               ./subprojects/highway.wrap
               ./subprojects/wqcolor.wrap
