@@ -7,7 +7,6 @@
 
 #include <cstdint>
 #include <filesystem>
-#include <vector>
 
 namespace weqeqq::image {
 
