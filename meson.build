@@ -2,7 +2,7 @@ project(
   'wqimage',
   ['cpp'],
   meson_version: '>=1.3.0',
-  version: '0.1.0',
+  version: '0.2.0',
   default_options: ['cpp_std=c++23', 'warning_level=3'],
 )
 
@@ -52,9 +52,7 @@ wqimage_pkg_requires = ['wqcolor >= 0.1.1', 'wqparallel >= 0.2.2']
 wqimage_pkg_private_requires = ['wqpng', 'wqfile']
 
 if get_option('default_library') != 'static'
-  version_script_arg = cpp.first_supported_link_argument(
-    '-Wl,--version-script=' + meson.current_source_dir() / 'wqimage.version'
-  )
+  version_script_arg = cpp.first_supported_link_argument('-Wl,--version-script=' + meson.current_source_dir() / 'wqimage.version')
   if version_script_arg.length() > 0
     wqimage_link_args += version_script_arg
   endif
