@@ -1,8 +1,8 @@
 #pragma once
 
 #include <weqeqq/color.h>
-#include <weqeqq/image/export.h>
 #include <weqeqq/image/error.h>
+#include <weqeqq/image/export.h>
 
 #include <algorithm>
 #include <cassert>
@@ -162,23 +162,26 @@ class Buffer {
     return *this;
   }
 
+  [[nodiscard]] bool operator==(const Buffer& other) const noexcept = default;
+  [[nodiscard]] bool operator!=(const Buffer& other) const noexcept = default;
+
   ~Buffer() noexcept = default;
 
   // ── Allocate zeroed ──────────────────────────────────────────
 
   Buffer(std::size_t width, std::size_t height, image::Color color)
-      : info_{.width         = ValidateNonZero(width, height),
-              .height        = height,
-              .color         = color},
+      : info_{.width  = ValidateNonZero(width, height),
+              .height = height,
+              .color  = color},
         data_(info_.ByteCount()) {}
 
   // ── Move vector in (no copy) ─────────────────────────────────
 
   Buffer(std::size_t width, std::size_t height, image::Color color,
          std::vector<std::uint8_t> data)
-      : info_{.width         = ValidateNonZero(width, height),
-              .height        = height,
-              .color         = color} {
+      : info_{.width  = ValidateNonZero(width, height),
+              .height = height,
+              .color  = color} {
     auto expected = info_.ByteCount();
 
     if (data.size() != expected) {
@@ -305,7 +308,8 @@ class Buffer {
   }
 
   [[nodiscard]]
-  static constexpr bool MulWouldOverflow(std::size_t a, std::size_t b) noexcept {
+  static constexpr bool MulWouldOverflow(std::size_t a,
+                                         std::size_t b) noexcept {
     return a != 0 && b > std::numeric_limits<std::size_t>::max() / a;
   }
 
@@ -320,8 +324,7 @@ class Buffer {
     }
 
     if (info_.width == 0 || info_.height == 0) {
-      throw BufferInvariantError(
-          "Non-empty buffer has zero width or height");
+      throw BufferInvariantError("Non-empty buffer has zero width or height");
     }
     if (!IsColorValueValid(info_.color)) {
       throw BufferInvariantError("Buffer color enum value is invalid");
