@@ -1,0 +1,6 @@
+[wrap-git]
+url = https://github.com/weqeqq/wqerror.git
+revision = cf7c58b7d963e71d8c4968fc3ba24a1137148dcd
+
+[provide]
+wqerror = wqerror_dep

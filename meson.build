@@ -44,11 +44,18 @@ wqparallel_dep = dependency(
   default_options: ['tests=disabled', 'install=' + install_bool],
   required: true,
 )
+wqerror_dep = dependency(
+  'wqerror',
+  version: '>=0.1.0',
+  fallback: ['wqerror', 'wqerror_dep'],
+  default_options: ['tests=disabled', 'install=' + install_feature],
+  required: true,
+)
 
-dependencies = [wqpng_dep, wqcolor_dep, wqfile_dep, wqparallel_dep]
+dependencies = [wqpng_dep, wqcolor_dep, wqfile_dep, wqparallel_dep, wqerror_dep]
 compile_flags = []
 wqimage_link_args = []
-wqimage_pkg_requires = ['wqcolor >= 0.1.1', 'wqparallel >= 0.2.2']
+wqimage_pkg_requires = ['wqcolor >= 0.1.1', 'wqparallel >= 0.2.2', 'wqerror >= 0.1.0']
 wqimage_pkg_private_requires = ['wqpng', 'wqfile']
 
 if get_option('default_library') != 'static'
@@ -149,6 +156,7 @@ if tests_enabled
     'run-tests',
     'tests/blending_test.cc',
     'tests/buffer_test.cc',
+    'tests/codec_error_test.cc',
     'tests/crop_test.cc',
     dependencies: [wqimage_dep, gtest_dep, gtest_main_dep],
   )

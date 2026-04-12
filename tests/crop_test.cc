@@ -85,17 +85,44 @@ TEST(CropTest, PreservesMetadataForRgbBuffers) {
 TEST(CropTest, RejectsZeroCropDimensions) {
   const auto input = MakePatternBuffer(2, 2, Color::kRgba);
 
-  EXPECT_THROW((void)Crop(input, 0, 0, 0, 1), CropInvalidSizeError);
-  EXPECT_THROW((void)Crop(input, 0, 0, 1, 0), CropInvalidSizeError);
+  EXPECT_THROW((void)Crop(input, 0, 0, 0, 1), CropInvalidDimensionsError);
+  EXPECT_THROW((void)Crop(input, 0, 0, 1, 0), CropInvalidDimensionsError);
 }
 
-TEST(CropTest, RejectsOutOfBoundsRegion) {
+TEST(CropTest, RejectsOutOfBoundsOrigin) {
   const auto input = MakePatternBuffer(3, 3, Color::kRgba);
 
-  EXPECT_THROW((void)Crop(input, 3, 0, 1, 1), CropRegionOutOfBoundsError);
-  EXPECT_THROW((void)Crop(input, 0, 3, 1, 1), CropRegionOutOfBoundsError);
-  EXPECT_THROW((void)Crop(input, 2, 1, 2, 1), CropRegionOutOfBoundsError);
-  EXPECT_THROW((void)Crop(input, 1, 2, 1, 2), CropRegionOutOfBoundsError);
+  EXPECT_THROW((void)Crop(input, 3, 0, 1, 1), CropOriginOutOfBoundsError);
+  EXPECT_THROW((void)Crop(input, 0, 3, 1, 1), CropOriginOutOfBoundsError);
+}
+
+TEST(CropTest, RejectsOutOfBoundsExtent) {
+  const auto input = MakePatternBuffer(3, 3, Color::kRgba);
+
+  EXPECT_THROW((void)Crop(input, 2, 1, 2, 1), CropExtentOutOfBoundsError);
+  EXPECT_THROW((void)Crop(input, 1, 2, 1, 2), CropExtentOutOfBoundsError);
+}
+
+TEST(CropTest, ExtentErrorExposesStructuredMetadata) {
+  const auto input = MakePatternBuffer(3, 3, Color::kRgba);
+
+  try {
+    (void)Crop(input, 2, 2, 2, 2);
+    FAIL() << "Expected CropExtentOutOfBoundsError";
+  } catch (const CropExtentOutOfBoundsError& error) {
+    EXPECT_EQ(error.TypedCode(), ErrorCode::kCropExtentOutOfBounds);
+
+    const auto* x           = error.FindField("x");
+    const auto* image_width = error.FindField("image_width");
+    ASSERT_NE(x, nullptr);
+    ASSERT_NE(image_width, nullptr);
+    EXPECT_EQ(x->value, "2");
+    EXPECT_EQ(image_width->value, "3");
+    EXPECT_FALSE(error.Details().empty());
+    EXPECT_FALSE(error.Hint().empty());
+  } catch (...) {
+    FAIL() << "Expected CropExtentOutOfBoundsError";
+  }
 }
 
 }  // namespace

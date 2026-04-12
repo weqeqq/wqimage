@@ -11,15 +11,22 @@ namespace weqeqq::image {
 
 namespace {
 Format FormatFromFilename(const std::filesystem::path &filename) {
-  auto extension = filename.extension().string();
+  const auto extension = filename.extension().string();
   if (extension == ".png") {
     return Format::kPng;
   } else {
-    throw EncodingError("Unsupported format for");
+    throw EncodeUnsupportedPathExtensionError(filename);
   }
 }
+
 std::vector<std::uint8_t> EncodePng(const Buffer &image) {
-  return png::EncodeImage(image, image.Width(), image.Height(), image.Color());
+  try {
+    return png::EncodeImage(image, image.Width(), image.Height(),
+                            image.Color());
+  } catch (const png::Error &error) {
+    throw EncodePngError(image.Width(), image.Height(), image.Color(),
+                         error.what());
+  }
 }
 }  // namespace
 
@@ -28,13 +35,18 @@ std::vector<std::uint8_t> Encode(const Buffer &buffer, Format format) {
     case Format::kPng:
       return EncodePng(buffer);
     default:
-      throw EncodingError("Unsupported d format");
+      throw EncodeUnsupportedFormatError(format, buffer.Width(),
+                                         buffer.Height(), buffer.Color());
   }
 }
 
 void Encode(const Buffer &buffer, Format format,
             const std::filesystem::path &filename) {
-  file::WriteBinary(Encode(buffer, format), filename);
+  try {
+    file::WriteBinary(Encode(buffer, format), filename);
+  } catch (const file::Error &error) {
+    throw EncodeOutputWriteError(filename, format, error.what());
+  }
 }
 
 void Encode(const Buffer &buffer, const std::filesystem::path &filename) {

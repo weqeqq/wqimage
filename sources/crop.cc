@@ -9,18 +9,18 @@ namespace {
 void ValidateCropRegion(const Buffer& input, std::size_t x, std::size_t y,
                         std::size_t width, std::size_t height) {
   if (width == 0 || height == 0) {
-    throw CropInvalidSizeError(width, height);
+    throw CropInvalidDimensionsError(width, height);
   }
 
   const auto input_width  = input.Width();
   const auto input_height = input.Height();
 
   if (x >= input_width || y >= input_height) {
-    throw CropRegionOutOfBoundsError(x, y, width, height, input_width,
+    throw CropOriginOutOfBoundsError(x, y, width, height, input_width,
                                      input_height);
   }
   if (width > input_width - x || height > input_height - y) {
-    throw CropRegionOutOfBoundsError(x, y, width, height, input_width,
+    throw CropExtentOutOfBoundsError(x, y, width, height, input_width,
                                      input_height);
   }
 }

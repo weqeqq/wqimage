@@ -12,6 +12,7 @@
 #include <limits>
 #include <source_location>
 #include <span>
+#include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -28,63 +29,188 @@ struct WQIMAGE_EXPORT BufferError : Error {
   using Error::Error;
 };
 
-struct WQIMAGE_EXPORT BufferNotInitializedError : BufferError {
-  BufferNotInitializedError(
-      std::source_location location = std::source_location::current())
-      : BufferError("Buffer not initialized", location) {}
-};
-
-struct WQIMAGE_EXPORT BufferIndexOutOfRangeError : BufferError {
-  BufferIndexOutOfRangeError(
-      std::size_t index, std::size_t length,
-      std::source_location location = std::source_location::current())
-      : BufferError(std::format("Index {} out of range [0, {})", index, length),
-                    location) {}
-
-  BufferIndexOutOfRangeError(
-      std::size_t row, std::size_t column, std::size_t height,
-      std::size_t width,
+struct WQIMAGE_EXPORT BufferUninitializedError : BufferError {
+  BufferUninitializedError(
       std::source_location location = std::source_location::current())
       : BufferError(
-            std::format("Position ({}, {}) out of range [0, {}) x [0, {})", row,
-                        column, height, width),
-            location) {}
+            ErrorCode::kBufferUninitialized,
+            {"buffer is uninitialized",
+             {},
+             "The requested operation requires initialized pixel storage, but "
+             "this Buffer is empty.",
+             "Construct the Buffer with non-zero dimensions before accessing "
+             "its data.",
+             location}) {}
 };
 
-struct WQIMAGE_EXPORT BufferOverflowError : BufferError {
-  BufferOverflowError(
-      std::size_t a, std::size_t b,
+struct WQIMAGE_EXPORT BufferLinearIndexOutOfBoundsError : BufferError {
+  BufferLinearIndexOutOfBoundsError(
+      std::size_t index, std::size_t pixel_count,
+      std::source_location location = std::source_location::current())
+      : BufferError(ErrorCode::kBufferLinearIndexOutOfBounds,
+                    {"buffer linear index is out of bounds",
+                     {
+                         {"index", index},
+                         {"pixel_count", pixel_count},
+                     },
+                     "The requested flat pixel index does not exist in this "
+                     "buffer.",
+                     "Ensure the index stays within [0, PixelCount()).",
+                     location}) {}
+};
+
+struct WQIMAGE_EXPORT BufferCoordinateOutOfBoundsError : BufferError {
+  BufferCoordinateOutOfBoundsError(
+      std::size_t x, std::size_t y, std::size_t width, std::size_t height,
       std::source_location location = std::source_location::current())
       : BufferError(
-            std::format("Multiplication overflow: {} * {} exceeds size_t", a,
-                        b),
-            location) {}
+            ErrorCode::kBufferCoordinateOutOfBounds,
+            {"buffer coordinates are out of bounds",
+             {
+                 {"x", x},
+                 {"y", y},
+                 {"width", width},
+                 {"height", height},
+             },
+             "The requested pixel coordinates are outside the buffer bounds.",
+             "Ensure x < Width() and y < Height() before indexing.",
+             location}) {}
 };
 
-struct WQIMAGE_EXPORT BufferInvalidSizeError : BufferError {
-  BufferInvalidSizeError(
+struct WQIMAGE_EXPORT BufferPixelCountOverflowError : BufferError {
+  BufferPixelCountOverflowError(
       std::size_t width, std::size_t height,
       std::source_location location = std::source_location::current())
-      : BufferError(
-            std::format("Invalid buffer dimensions: {}x{} (must be > 0)", width,
-                        height),
-            location) {}
+      : BufferError(ErrorCode::kBufferPixelCountOverflow,
+                    {"buffer pixel count calculation overflowed",
+                     {
+                         {"width", width},
+                         {"height", height},
+                     },
+                     "Computing width * height overflowed std::size_t.",
+                     "Use smaller buffer dimensions so the total pixel count "
+                     "fits in size_t.",
+                     location}) {}
+};
+
+struct WQIMAGE_EXPORT BufferStrideOverflowError : BufferError {
+  BufferStrideOverflowError(
+      std::size_t width, std::size_t channel_count,
+      std::source_location location = std::source_location::current())
+      : BufferError(ErrorCode::kBufferStrideOverflow,
+                    {"buffer stride calculation overflowed",
+                     {
+                         {"width", width},
+                         {"channel_count", channel_count},
+                     },
+                     "Computing width * channel_count overflowed std::size_t.",
+                     "Use a smaller width or a color format with fewer "
+                     "channels.",
+                     location}) {}
+};
+
+struct WQIMAGE_EXPORT BufferByteCountOverflowError : BufferError {
+  BufferByteCountOverflowError(
+      std::size_t height, std::size_t stride_bytes,
+      std::source_location location = std::source_location::current())
+      : BufferError(ErrorCode::kBufferByteCountOverflow,
+                    {"buffer byte count calculation overflowed",
+                     {
+                         {"height", height},
+                         {"stride_bytes", stride_bytes},
+                     },
+                     "Computing height * stride_bytes overflowed std::size_t.",
+                     "Use smaller dimensions so the total byte count fits in "
+                     "size_t.",
+                     location}) {}
+};
+
+struct WQIMAGE_EXPORT BufferInvalidDimensionsError : BufferError {
+  BufferInvalidDimensionsError(
+      std::size_t width, std::size_t height,
+      std::source_location location = std::source_location::current())
+      : BufferError(ErrorCode::kBufferInvalidDimensions,
+                    {"invalid buffer dimensions",
+                     {
+                         {"width", width},
+                         {"height", height},
+                     },
+                     "Buffers must be created with positive width and height.",
+                     "Pass non-zero dimensions when constructing a Buffer.",
+                     location}) {}
 };
 
 struct WQIMAGE_EXPORT BufferDataSizeMismatchError : BufferError {
   BufferDataSizeMismatchError(
       std::size_t expected, std::size_t actual,
       std::source_location location = std::source_location::current())
-      : BufferError(std::format("Data size mismatch: expected {} bytes, got {}",
-                                expected, actual),
-                    location) {}
+      : BufferError(
+            ErrorCode::kBufferDataSizeMismatch,
+            {"buffer data size mismatch",
+             {
+                 {"expected_bytes", expected},
+                 {"actual_bytes", actual},
+             },
+             "The supplied byte vector size does not match the buffer "
+             "metadata.",
+             "Provide exactly Width() * Height() * ChannelCount() bytes.",
+             location}) {}
 };
 
 struct WQIMAGE_EXPORT BufferInvariantError : BufferError {
-  BufferInvariantError(
-      std::string_view message,
+  using BufferError::BufferError;
+};
+
+struct WQIMAGE_EXPORT BufferZeroDimensionsInvariantError
+    : BufferInvariantError {
+  BufferZeroDimensionsInvariantError(
+      std::size_t width, std::size_t height,
       std::source_location location = std::source_location::current())
-      : BufferError(message, location) {}
+      : BufferInvariantError(
+            ErrorCode::kBufferZeroDimensionsInvariantViolation,
+            {"buffer invariant violated: zero dimensions",
+             {
+                 {"width", width},
+                 {"height", height},
+             },
+             "A non-empty buffer must always report positive width and height.",
+             "Check recent mutations to Buffer metadata; this usually "
+             "indicates object corruption or a logic error.",
+             location}) {}
+};
+
+struct WQIMAGE_EXPORT BufferInvalidColorInvariantError : BufferInvariantError {
+  BufferInvalidColorInvariantError(
+      int color_value,
+      std::source_location location = std::source_location::current())
+      : BufferInvariantError(
+            ErrorCode::kBufferInvalidColorInvariantViolation,
+            {"buffer invariant violated: invalid color",
+             {
+                 {"color_value", color_value},
+             },
+             "The stored buffer color enum value is outside the valid range.",
+             "Check recent mutations to Buffer metadata; this usually "
+             "indicates object corruption or an invalid cast.",
+             location}) {}
+};
+
+struct WQIMAGE_EXPORT BufferByteCountInvariantError : BufferInvariantError {
+  BufferByteCountInvariantError(
+      std::size_t expected_bytes, std::size_t actual_bytes,
+      std::source_location location = std::source_location::current())
+      : BufferInvariantError(
+            ErrorCode::kBufferByteCountInvariantViolation,
+            {"buffer invariant violated: byte count mismatch",
+             {
+                 {"expected_bytes", expected_bytes},
+                 {"actual_bytes", actual_bytes},
+             },
+             "The buffer metadata does not match the size of the owned byte "
+             "storage.",
+             "Check recent mutations to Buffer metadata or data_; this "
+             "usually indicates object corruption or a logic error.",
+             location}) {}
 };
 
 // ── BufferInfo ───────────────────────────────────────────────────
@@ -103,7 +229,7 @@ struct BufferInfo {
       return 0;
     }
     if (width > std::numeric_limits<std::size_t>::max() / height) {
-      throw BufferOverflowError(width, height);
+      throw BufferPixelCountOverflowError(width, height);
     }
     return width * height;
   }
@@ -114,7 +240,7 @@ struct BufferInfo {
       return 0;
     }
     if (width > std::numeric_limits<std::size_t>::max() / channel_count) {
-      throw BufferOverflowError(width, channel_count);
+      throw BufferStrideOverflowError(width, channel_count);
     }
     return width * channel_count;
   }
@@ -125,7 +251,7 @@ struct BufferInfo {
       return 0;
     }
     if (height > std::numeric_limits<std::size_t>::max() / stride) {
-      throw BufferOverflowError(height, stride);
+      throw BufferByteCountOverflowError(height, stride);
     }
     return height * stride;
   }
@@ -197,10 +323,10 @@ class Buffer {
     if constexpr (Debug) {
       self.ValidateInvariantOrThrow();
       if (self.Empty()) {
-        throw BufferNotInitializedError();
+        throw BufferUninitializedError();
       }
       if (index >= self.PixelCount()) {
-        throw BufferIndexOutOfRangeError(index, self.PixelCount());
+        throw BufferLinearIndexOutOfBoundsError(index, self.PixelCount());
       }
     }
     return std::span{self.Data() + (index * self.ChannelCount()),
@@ -213,10 +339,11 @@ class Buffer {
     if constexpr (Debug) {
       self.ValidateInvariantOrThrow();
       if (self.Empty()) {
-        throw BufferNotInitializedError();
+        throw BufferUninitializedError();
       }
       if (y >= self.Height() || x >= self.Width()) {
-        throw BufferIndexOutOfRangeError(y, x, self.Height(), self.Width());
+        throw BufferCoordinateOutOfBoundsError(x, y, self.Width(),
+                                               self.Height());
       }
     }
     return std::forward<decltype(self)>(self)[y * self.Width() + x];
@@ -324,14 +451,14 @@ class Buffer {
     }
 
     if (info_.width == 0 || info_.height == 0) {
-      throw BufferInvariantError("Non-empty buffer has zero width or height");
+      throw BufferZeroDimensionsInvariantError(info_.width, info_.height);
     }
     if (!IsColorValueValid(info_.color)) {
-      throw BufferInvariantError("Buffer color enum value is invalid");
+      throw BufferInvalidColorInvariantError(static_cast<int>(info_.color));
     }
     const auto expected_byte_count = ExpectedByteCountOrThrow();
     if (data_.size() != expected_byte_count) {
-      throw BufferInvariantError("Buffer byte size does not match metadata");
+      throw BufferByteCountInvariantError(expected_byte_count, data_.size());
     }
   }
 
@@ -371,17 +498,9 @@ class Buffer {
   static constexpr std::size_t ValidateNonZero(std::size_t width,
                                                std::size_t height) {
     if (width == 0 || height == 0) {
-      throw BufferInvalidSizeError(width, height);
+      throw BufferInvalidDimensionsError(width, height);
     }
     return width;
-  }
-
-  [[nodiscard]]
-  static constexpr std::size_t MulOrThrow(std::size_t a, std::size_t b) {
-    if (a != 0 && b > std::numeric_limits<std::size_t>::max() / a) {
-      throw BufferOverflowError(a, b);
-    }
-    return a * b;
   }
 
   BufferInfo info_;

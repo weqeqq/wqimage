@@ -1,8 +1,8 @@
 #include <gtest/gtest.h>
-
 #include <weqeqq/image/buffer.h>
 
 #include <cstdint>
+#include <limits>
 #include <span>
 #include <vector>
 
@@ -42,8 +42,61 @@ TEST(BufferTest, ConstructFromDataVectorAcceptsExactSize) {
 }
 
 TEST(BufferTest, ConstructRejectsZeroDimensions) {
-  EXPECT_THROW((Buffer(0, 1, Color::kRgba)), BufferInvalidSizeError);
-  EXPECT_THROW((Buffer(1, 0, Color::kRgba)), BufferInvalidSizeError);
+  EXPECT_THROW((Buffer(0, 1, Color::kRgba)), BufferInvalidDimensionsError);
+  EXPECT_THROW((Buffer(1, 0, Color::kRgba)), BufferInvalidDimensionsError);
+}
+
+TEST(BufferTest, InvalidSizeErrorExposesStructuredMetadata) {
+  try {
+    (void)Buffer(0, 1, Color::kRgba);
+    FAIL() << "Expected BufferInvalidDimensionsError";
+  } catch (const BufferInvalidDimensionsError &error) {
+    EXPECT_EQ(error.TypedCode(), ErrorCode::kBufferInvalidDimensions);
+    ASSERT_TRUE(error.HasCode());
+    EXPECT_EQ(error.Code(),
+              make_error_code(ErrorCode::kBufferInvalidDimensions));
+
+    const auto *width  = error.FindField("width");
+    const auto *height = error.FindField("height");
+    ASSERT_NE(width, nullptr);
+    ASSERT_NE(height, nullptr);
+    EXPECT_EQ(width->value, "0");
+    EXPECT_EQ(height->value, "1");
+    EXPECT_FALSE(error.Details().empty());
+    EXPECT_FALSE(error.Hint().empty());
+  } catch (...) {
+    FAIL() << "Expected BufferInvalidDimensionsError";
+  }
+}
+
+TEST(BufferInfoTest, PixelCountOverflowThrowsSpecificError) {
+  BufferInfo info{
+      .width  = std::numeric_limits<std::size_t>::max(),
+      .height = 2,
+      .color  = Color::kRgba,
+  };
+
+  EXPECT_THROW((void)info.PixelCount(), BufferPixelCountOverflowError);
+}
+
+TEST(BufferInfoTest, StrideOverflowThrowsSpecificError) {
+  BufferInfo info{
+      .width  = std::numeric_limits<std::size_t>::max() / 4 + 1,
+      .height = 1,
+      .color  = Color::kRgba,
+  };
+
+  EXPECT_THROW((void)info.StrideBytes(), BufferStrideOverflowError);
+}
+
+TEST(BufferInfoTest, ByteCountOverflowThrowsSpecificError) {
+  BufferInfo info{
+      .width  = std::numeric_limits<std::size_t>::max() / 4,
+      .height = 2,
+      .color  = Color::kRgba,
+  };
+
+  EXPECT_THROW((void)info.ByteCount(), BufferByteCountOverflowError);
 }
 
 TEST(BufferTest, ConstructRejectsMismatchedDataSize) {
@@ -63,8 +116,22 @@ TEST(BufferTest, FlatIndexReturnsPixelSpan) {
 TEST(BufferTest, CoordinateIndexReturnsPixelSpan) {
   Buffer buffer(2, 2, Color::kRgba,
                 {
-                    1, 2, 3, 4, 5, 6, 7, 8,
-                    9, 10, 11, 12, 13, 14, 15, 16,
+                    1,
+                    2,
+                    3,
+                    4,
+                    5,
+                    6,
+                    7,
+                    8,
+                    9,
+                    10,
+                    11,
+                    12,
+                    13,
+                    14,
+                    15,
+                    16,
                 });
 
   auto pixel = buffer[1, 1];
@@ -107,7 +174,7 @@ TEST(BufferTest, UninitializedBufferIndexThrowsInDebug) {
   }
 
   Buffer buffer;
-  EXPECT_THROW((void)buffer[0], BufferNotInitializedError);
+  EXPECT_THROW((void)buffer[0], BufferUninitializedError);
 }
 
 TEST(BufferTest, FlatIndexOutOfRangeThrowsInDebug) {
@@ -116,7 +183,7 @@ TEST(BufferTest, FlatIndexOutOfRangeThrowsInDebug) {
   }
 
   Buffer buffer(1, 1, Color::kRgba);
-  EXPECT_THROW((void)buffer[1], BufferIndexOutOfRangeError);
+  EXPECT_THROW((void)buffer[1], BufferLinearIndexOutOfBoundsError);
 }
 
 TEST(BufferTest, CoordinateOutOfRangeThrowsInDebug) {
@@ -125,8 +192,10 @@ TEST(BufferTest, CoordinateOutOfRangeThrowsInDebug) {
   }
 
   Buffer buffer(1, 1, Color::kRgba);
-  EXPECT_THROW(([&] { (void)buffer[1, 0]; }()), BufferIndexOutOfRangeError);
-  EXPECT_THROW(([&] { (void)buffer[0, 1]; }()), BufferIndexOutOfRangeError);
+  EXPECT_THROW(([&] { (void)buffer[1, 0]; }()),
+               BufferCoordinateOutOfBoundsError);
+  EXPECT_THROW(([&] { (void)buffer[0, 1]; }()),
+               BufferCoordinateOutOfBoundsError);
 }
 
 struct BufferLayoutMirror {
@@ -147,11 +216,11 @@ TEST(BufferTest, DebugInvariantThrowsForZeroDimensionsWithData) {
   }
 
   Buffer buffer(1, 1, Color::kRgba, {1, 2, 3, 4});
-  auto &raw      = Raw(buffer);
+  auto &raw       = Raw(buffer);
   raw.info_.width = 0;
 
   EXPECT_THROW((void)static_cast<std::span<std::uint8_t>>(buffer),
-               BufferInvariantError);
+               BufferZeroDimensionsInvariantError);
 }
 
 TEST(BufferTest, DebugInvariantThrowsForInvalidColorValue) {
@@ -160,10 +229,10 @@ TEST(BufferTest, DebugInvariantThrowsForInvalidColorValue) {
   }
 
   Buffer buffer(1, 1, Color::kRgba, {1, 2, 3, 4});
-  auto &raw   = Raw(buffer);
+  auto &raw       = Raw(buffer);
   raw.info_.color = static_cast<Color>(255);
 
-  EXPECT_THROW((void)buffer[0], BufferInvariantError);
+  EXPECT_THROW((void)buffer[0], BufferInvalidColorInvariantError);
 }
 
 TEST(BufferTest, DebugInvariantThrowsForByteCountMismatch) {
@@ -176,7 +245,7 @@ TEST(BufferTest, DebugInvariantThrowsForByteCountMismatch) {
   raw.data_.push_back(5);
 
   EXPECT_THROW((void)static_cast<std::span<const std::uint8_t>>(buffer),
-               BufferInvariantError);
+               BufferByteCountInvariantError);
 }
 
 }  // namespace

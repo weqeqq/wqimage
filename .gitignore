@@ -2,7 +2,11 @@
 build
 
 subprojects/*
-!subprojects/*.wrap
+!subprojects/gtest.wrap
+!subprojects/highway.wrap
+!subprojects/wqcolor.wrap
+!subprojects/wqerror.wrap
+!subprojects/wqfile.wrap
+!subprojects/wqparallel.wrap
+!subprojects/wqpng.wrap
 
-subprojects/fpng.wrap
-subprojects/wuffs.wrap
