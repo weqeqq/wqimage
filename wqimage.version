@@ -4,6 +4,7 @@ WQIMAGE_0 {
       weqeqq::image::Decode*;
       weqeqq::image::Encode*;
       weqeqq::image::ConvertColor*;
+      weqeqq::image::Crop*;
       weqeqq::image::PremultiplyInPlace*;
       weqeqq::image::UnpremultiplyInPlace*;
       weqeqq::image::BlendInPlace*;
@@ -12,6 +13,9 @@ WQIMAGE_0 {
       *weqeqq::image::DecodingError*;
       *weqeqq::image::EncodingError*;
       *weqeqq::image::PngEncodingError*;
+      *weqeqq::image::CropError*;
+      *weqeqq::image::CropInvalidSizeError*;
+      *weqeqq::image::CropRegionOutOfBoundsError*;
       *weqeqq::image::BufferError*;
       *weqeqq::image::BufferNotInitializedError*;
       *weqeqq::image::BufferIndexOutOfRangeError*;

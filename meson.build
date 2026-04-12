@@ -86,6 +86,7 @@ endif
 wqimage_lib = library(
   'wqimage',
   'sources/color_conversion.cc',
+  'sources/crop.cc',
   'sources/blending.cc',
   'sources/decoding.cc',
   'sources/encoding.cc',
@@ -114,6 +115,7 @@ if install_enabled
     'headers/weqeqq/image/buffer.h',
     'headers/weqeqq/image/color_conversion.h',
     'headers/weqeqq/image/config.h',
+    'headers/weqeqq/image/crop.h',
     'headers/weqeqq/image/decoding.h',
     'headers/weqeqq/image/encoding.h',
     'headers/weqeqq/image/error.h',
@@ -147,6 +149,7 @@ if tests_enabled
     'run-tests',
     'tests/blending_test.cc',
     'tests/buffer_test.cc',
+    'tests/crop_test.cc',
     dependencies: [wqimage_dep, gtest_dep, gtest_main_dep],
   )
 
