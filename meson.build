@@ -92,6 +92,7 @@ endif
 
 wqimage_lib = library(
   'wqimage',
+  'sources/adjustments.cc',
   'sources/color_conversion.cc',
   'sources/crop.cc',
   'sources/blending.cc',
@@ -118,6 +119,7 @@ meson.override_dependency('wqimage', wqimage_dep)
 
 if install_enabled
   install_headers(
+    'headers/weqeqq/image/adjustments.h',
     'headers/weqeqq/image/blending.h',
     'headers/weqeqq/image/buffer.h',
     'headers/weqeqq/image/color_conversion.h',
@@ -154,6 +156,7 @@ if tests_enabled
 
   run_tests = executable(
     'run-tests',
+    'tests/adjustments_test.cc',
     'tests/blending_test.cc',
     'tests/buffer_test.cc',
     'tests/codec_error_test.cc',

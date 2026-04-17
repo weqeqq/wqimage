@@ -5,6 +5,8 @@ global:
   weqeqq::image::Encode*;
   weqeqq::image::ConvertColor*;
   weqeqq::image::Crop*;
+  weqeqq::image::AdjustBrightness*;
+  weqeqq::image::AdjustContrast*;
   weqeqq::image::PremultiplyInPlace*;
   weqeqq::image::UnpremultiplyInPlace*;
   weqeqq::image::BlendInPlace*;
@@ -23,6 +25,11 @@ global:
   *weqeqq::image::CropInvalidDimensionsError*;
   *weqeqq::image::CropOriginOutOfBoundsError*;
   *weqeqq::image::CropExtentOutOfBoundsError*;
+  *weqeqq::image::AdjustmentError*;
+  *weqeqq::image::AdjustmentUnsupportedColorError*;
+  *weqeqq::image::AdjustmentBrightnessOutOfRangeError*;
+  *weqeqq::image::AdjustmentContrastOutOfRangeError*;
+  *weqeqq::image::AdjustmentInvalidModeError*;
   *weqeqq::image::BufferError*;
   *weqeqq::image::BufferUninitializedError*;
   *weqeqq::image::BufferLinearIndexOutOfBoundsError*;

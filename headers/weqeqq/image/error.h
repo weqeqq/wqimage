@@ -31,6 +31,10 @@ enum class ErrorCode {
   kEncodeUnsupportedPathExtension,
   kEncodeOutputWrite,
   kEncodePng,
+  kAdjustmentUnsupportedColor,
+  kAdjustmentBrightnessOutOfRange,
+  kAdjustmentContrastOutOfRange,
+  kAdjustmentInvalidMode,
 };
 
 }  // namespace weqeqq::image
@@ -92,6 +96,14 @@ class ImageErrorCategory final : public std::error_category {
         return "failed to write encoded image";
       case ErrorCode::kEncodePng:
         return "png encode failed";
+      case ErrorCode::kAdjustmentUnsupportedColor:
+        return "adjustments do not support this color format";
+      case ErrorCode::kAdjustmentBrightnessOutOfRange:
+        return "brightness value is out of range";
+      case ErrorCode::kAdjustmentContrastOutOfRange:
+        return "contrast value is out of range";
+      case ErrorCode::kAdjustmentInvalidMode:
+        return "adjustment mode is invalid";
     }
     return "unknown image error";
   }
