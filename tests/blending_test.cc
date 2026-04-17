@@ -253,7 +253,7 @@ void Compare(const Buffer &actual, const Buffer &expected) {
 }
 
 void CompareWithTolerance(const Buffer &actual, const Buffer &expected,
-                         std::uint8_t tolerance) {
+                          std::uint8_t tolerance) {
   ASSERT_EQ(actual.Width(), expected.Width());
   ASSERT_EQ(actual.Height(), expected.Height());
 
@@ -262,10 +262,9 @@ void CompareWithTolerance(const Buffer &actual, const Buffer &expected,
       const auto a = actual[index][channel];
       const auto e = expected[index][channel];
       const auto d = (a > e) ? (a - e) : (e - a);
-      EXPECT_LE(d, tolerance)
-          << "pixel " << index << " channel " << channel
-          << " actual=" << static_cast<int>(a)
-          << " expected=" << static_cast<int>(e);
+      EXPECT_LE(d, tolerance) << "pixel " << index << " channel " << channel
+                              << " actual=" << static_cast<int>(a)
+                              << " expected=" << static_cast<int>(e);
     }
   }
 }
@@ -280,6 +279,38 @@ Buffer MakeUniformBuffer(std::size_t width, std::size_t height, std::uint8_t r,
     data[i * 4 + 3] = a;
   }
   return Buffer(width, height, Color::kRgba, std::move(data));
+}
+
+Buffer MakeUniformRgbBuffer(std::size_t width, std::size_t height,
+                            std::uint8_t r, std::uint8_t g, std::uint8_t b) {
+  std::vector<std::uint8_t> data(width * height * 3);
+  for (std::size_t i = 0; i < width * height; ++i) {
+    data[i * 3 + 0] = r;
+    data[i * 3 + 1] = g;
+    data[i * 3 + 2] = b;
+  }
+  return Buffer(width, height, Color::kRgb, std::move(data));
+}
+
+Buffer MakeUniformGrayBuffer(std::size_t width, std::size_t height,
+                             std::uint8_t value) {
+  return Buffer(width, height, Color::kGrayscale,
+                std::vector<std::uint8_t>(width * height, value));
+}
+
+std::size_t CountChangedPixels(const Buffer &actual, const Buffer &baseline) {
+  std::size_t changed = 0;
+  for (std::size_t index = 0; index < actual.PixelCount(); ++index) {
+    bool differs = false;
+    for (std::size_t channel = 0; channel < actual.ChannelCount(); ++channel) {
+      if (actual[index][channel] != baseline[index][channel]) {
+        differs = true;
+        break;
+      }
+    }
+    changed += differs ? 1u : 0u;
+  }
+  return changed;
 }
 
 TYPED_TEST(BlendingTest, OpaqueSourceOpaqueDestStraightAlpha) {
@@ -330,10 +361,14 @@ TEST(BlendApiTest, PositiveOffsetBlendsOnlyIntersectingRegion) {
         EXPECT_EQ(destination[idx][2], 50) << "x=" << x << " y=" << y;
         EXPECT_EQ(destination[idx][3], 255) << "x=" << x << " y=" << y;
       } else {
-        EXPECT_EQ(destination[idx][0], expected[idx][0]) << "x=" << x << " y=" << y;
-        EXPECT_EQ(destination[idx][1], expected[idx][1]) << "x=" << x << " y=" << y;
-        EXPECT_EQ(destination[idx][2], expected[idx][2]) << "x=" << x << " y=" << y;
-        EXPECT_EQ(destination[idx][3], expected[idx][3]) << "x=" << x << " y=" << y;
+        EXPECT_EQ(destination[idx][0], expected[idx][0])
+            << "x=" << x << " y=" << y;
+        EXPECT_EQ(destination[idx][1], expected[idx][1])
+            << "x=" << x << " y=" << y;
+        EXPECT_EQ(destination[idx][2], expected[idx][2])
+            << "x=" << x << " y=" << y;
+        EXPECT_EQ(destination[idx][3], expected[idx][3])
+            << "x=" << x << " y=" << y;
       }
     }
   }
@@ -346,11 +381,11 @@ TEST(BlendApiTest, NegativeOffsetCropsSourceCorrectly) {
   Buffer source(3, 3, Color::kRgba, std::vector<std::uint8_t>(3 * 3 * 4));
   for (std::size_t y = 0; y < 3; ++y) {
     for (std::size_t x = 0; x < 3; ++x) {
-      const auto i  = y * 3 + x;
-      source[i][0]  = static_cast<std::uint8_t>(10 * x + y);
-      source[i][1]  = static_cast<std::uint8_t>(100 + 10 * x + y);
-      source[i][2]  = static_cast<std::uint8_t>(200 + 10 * x + y);
-      source[i][3]  = 255;
+      const auto i = y * 3 + x;
+      source[i][0] = static_cast<std::uint8_t>(10 * x + y);
+      source[i][1] = static_cast<std::uint8_t>(100 + 10 * x + y);
+      source[i][2] = static_cast<std::uint8_t>(200 + 10 * x + y);
+      source[i][3] = 255;
     }
   }
 
@@ -362,15 +397,22 @@ TEST(BlendApiTest, NegativeOffsetCropsSourceCorrectly) {
       const auto idx = y * 3 + x;
       if (x < 2 && y < 2) {
         const auto src_idx = (y + 1) * 3 + (x + 1);
-        EXPECT_EQ(destination[idx][0], source[src_idx][0]) << "x=" << x << " y=" << y;
-        EXPECT_EQ(destination[idx][1], source[src_idx][1]) << "x=" << x << " y=" << y;
-        EXPECT_EQ(destination[idx][2], source[src_idx][2]) << "x=" << x << " y=" << y;
+        EXPECT_EQ(destination[idx][0], source[src_idx][0])
+            << "x=" << x << " y=" << y;
+        EXPECT_EQ(destination[idx][1], source[src_idx][1])
+            << "x=" << x << " y=" << y;
+        EXPECT_EQ(destination[idx][2], source[src_idx][2])
+            << "x=" << x << " y=" << y;
         EXPECT_EQ(destination[idx][3], 255) << "x=" << x << " y=" << y;
       } else {
-        EXPECT_EQ(destination[idx][0], expected[idx][0]) << "x=" << x << " y=" << y;
-        EXPECT_EQ(destination[idx][1], expected[idx][1]) << "x=" << x << " y=" << y;
-        EXPECT_EQ(destination[idx][2], expected[idx][2]) << "x=" << x << " y=" << y;
-        EXPECT_EQ(destination[idx][3], expected[idx][3]) << "x=" << x << " y=" << y;
+        EXPECT_EQ(destination[idx][0], expected[idx][0])
+            << "x=" << x << " y=" << y;
+        EXPECT_EQ(destination[idx][1], expected[idx][1])
+            << "x=" << x << " y=" << y;
+        EXPECT_EQ(destination[idx][2], expected[idx][2])
+            << "x=" << x << " y=" << y;
+        EXPECT_EQ(destination[idx][3], expected[idx][3])
+            << "x=" << x << " y=" << y;
       }
     }
   }
@@ -379,13 +421,41 @@ TEST(BlendApiTest, NegativeOffsetCropsSourceCorrectly) {
 TEST(BlendApiTest, PremultipliedMatchesStraightForNormalMode) {
   Buffer source(2, 2, Color::kRgba,
                 {
-                    250, 20, 10, 128,   10, 250, 20, 64,
-                    20, 10, 250, 192,   240, 240, 40, 32,
+                    250,
+                    20,
+                    10,
+                    128,
+                    10,
+                    250,
+                    20,
+                    64,
+                    20,
+                    10,
+                    250,
+                    192,
+                    240,
+                    240,
+                    40,
+                    32,
                 });
   Buffer destination(2, 2, Color::kRgba,
                      {
-                         10, 20, 30, 255,   200, 30, 40, 180,
-                         50, 220, 60, 90,   70, 80, 240, 140,
+                         10,
+                         20,
+                         30,
+                         255,
+                         200,
+                         30,
+                         40,
+                         180,
+                         50,
+                         220,
+                         60,
+                         90,
+                         70,
+                         80,
+                         240,
+                         140,
                      });
 
   auto straight_dst = destination.Clone();
@@ -393,10 +463,141 @@ TEST(BlendApiTest, PremultipliedMatchesStraightForNormalMode) {
 
   auto premul_src = Premultiply(source.Clone());
   auto premul_dst = Premultiply(destination.Clone());
-  BlendInPlace(premul_dst, premul_src, Blending::kNormal, Alpha::kPremultiplied);
+  BlendInPlace(premul_dst, premul_src, Blending::kNormal,
+               Alpha::kPremultiplied);
   UnpremultiplyInPlace(premul_dst);
 
   CompareWithTolerance(premul_dst, straight_dst, 1);
+}
+
+TEST(BlendOpacityTest, ZeroOpacityLeavesDestinationUnchangedForMultiply) {
+  auto source         = MakeUniformBuffer(2, 2, 200, 100, 50, 255);
+  auto destination    = MakeUniformBuffer(2, 2, 40, 80, 120, 255);
+  const auto expected = destination.Clone();
+
+  BlendInPlace(destination, source, Blending::kMultiply, Alpha::kStraight, 0);
+
+  EXPECT_EQ(destination, expected);
+}
+
+TEST(BlendOpacityTest, ZeroOpacityLeavesDestinationUnchangedForHue) {
+  Buffer source(1, 1, Color::kRgba, {255, 0, 0, 255});
+  Buffer destination(1, 1, Color::kRgba, {0, 0, 255, 255});
+  const auto expected = destination.Clone();
+
+  BlendInPlace(destination, source, Blending::kHue, Alpha::kStraight, 0);
+
+  EXPECT_EQ(destination, expected);
+}
+
+TEST(BlendOpacityTest, RgbaNormalHalfOpacityMixesWithDestination) {
+  Buffer source(1, 1, Color::kRgba, {220, 140, 100, 255});
+  Buffer destination(1, 1, Color::kRgba, {20, 40, 60, 255});
+
+  BlendInPlace(destination, source, Blending::kNormal, Alpha::kStraight, 50);
+
+  EXPECT_EQ(destination[0][0], 120);
+  EXPECT_EQ(destination[0][1], 90);
+  EXPECT_EQ(destination[0][2], 80);
+  EXPECT_EQ(destination[0][3], 255);
+}
+
+TEST(BlendOpacityTest, RgbNormalHalfOpacityLerpsFromDestinationToBlendResult) {
+  auto source         = MakeUniformRgbBuffer(1, 1, 200, 100, 0);
+  auto destination    = MakeUniformRgbBuffer(1, 1, 0, 100, 200);
+  const auto expected = MakeUniformRgbBuffer(1, 1, 100, 100, 100);
+
+  BlendInPlace(destination, source, Blending::kNormal, Alpha::kStraight, 50);
+
+  EXPECT_EQ(destination, expected);
+}
+
+TEST(BlendOpacityTest,
+     GrayscaleNormalHalfOpacityLerpsFromDestinationToBlendResult) {
+  Buffer source(3, 1, Color::kGrayscale, {220, 120, 20});
+  auto destination  = MakeUniformGrayBuffer(3, 1, 20);
+  destination[1][0] = 120;
+  destination[2][0] = 220;
+  const Buffer expected(3, 1, Color::kGrayscale, {120, 120, 120});
+
+  BlendInPlace(destination, source, Blending::kNormal, Alpha::kStraight, 50);
+
+  EXPECT_EQ(destination, expected);
+}
+
+TEST(BlendOpacityTest, PremultipliedMatchesStraightForNormalMode) {
+  Buffer source(2, 2, Color::kRgba,
+                {
+                    250,
+                    20,
+                    10,
+                    128,
+                    10,
+                    250,
+                    20,
+                    64,
+                    20,
+                    10,
+                    250,
+                    192,
+                    240,
+                    240,
+                    40,
+                    32,
+                });
+  Buffer destination(2, 2, Color::kRgba,
+                     {
+                         10,
+                         20,
+                         30,
+                         255,
+                         200,
+                         30,
+                         40,
+                         180,
+                         50,
+                         220,
+                         60,
+                         90,
+                         70,
+                         80,
+                         240,
+                         140,
+                     });
+
+  auto straight_dst = destination.Clone();
+  BlendInPlace(straight_dst, source, Blending::kNormal, Alpha::kStraight, 50);
+
+  auto premul_src = Premultiply(source.Clone());
+  auto premul_dst = Premultiply(destination.Clone());
+  BlendInPlace(premul_dst, premul_src, Blending::kNormal, Alpha::kPremultiplied,
+               50);
+  UnpremultiplyInPlace(premul_dst);
+
+  CompareWithTolerance(premul_dst, straight_dst, 1);
+}
+
+TEST(BlendOpacityTest, OpacityOutOfRangeErrorExposesStructuredMetadata) {
+  auto source      = MakeUniformBuffer(1, 1, 255, 0, 0, 255);
+  auto destination = MakeUniformBuffer(1, 1, 0, 0, 255, 255);
+
+  try {
+    BlendInPlace(destination, source, Blending::kNormal, Alpha::kStraight, 101);
+    FAIL() << "Expected BlendOpacityOutOfRangeError";
+  } catch (const BlendOpacityOutOfRangeError &error) {
+    EXPECT_EQ(error.TypedCode(), ErrorCode::kBlendOpacityOutOfRange);
+
+    const auto *value = error.FindField("value");
+    const auto *max   = error.FindField("max");
+    ASSERT_NE(value, nullptr);
+    ASSERT_NE(max, nullptr);
+    EXPECT_EQ(value->value, "101");
+    EXPECT_EQ(max->value, "100");
+    EXPECT_FALSE(error.Details().empty());
+    EXPECT_FALSE(error.Hint().empty());
+  } catch (...) {
+    FAIL() << "Expected BlendOpacityOutOfRangeError";
+  }
 }
 
 // ─── HSL modes with coloured pixels ──────────────────────────────────────────
@@ -681,6 +882,40 @@ TEST(DissolveBlendingTest, PartialAlphaProducesHardPixels) {
     // Each pixel is either the original (alpha=50) or the source (alpha=255)
     EXPECT_TRUE(a == 50 || a == 255) << "pixel " << i << " alpha=" << (int)a;
   }
+}
+
+TEST(DissolveBlendingTest, ZeroOpacityLeavesDestinationUnchanged) {
+  Buffer source(3, 3, Color::kRgba, std::vector<std::uint8_t>(9 * 4, 0));
+  for (std::size_t i = 3; i < 9 * 4; i += 4) source.Data()[i] = 255;
+  for (std::size_t i = 0; i < 9 * 4; i += 4) source.Data()[i] = 200;
+
+  auto destination    = MakeUniformBuffer(3, 3, 20, 30, 40, 50);
+  const auto expected = destination.Clone();
+
+  BlendInPlace(destination, source, Blending::kDissolve, Alpha::kStraight, 0);
+
+  EXPECT_EQ(destination, expected);
+}
+
+TEST(DissolveBlendingTest, HalfOpacityIsDeterministicAndPartial) {
+  Buffer source(4, 4, Color::kRgba, std::vector<std::uint8_t>(4 * 4 * 4, 0));
+  for (std::size_t i = 3; i < 4 * 4 * 4; i += 4) source.Data()[i] = 255;
+  for (std::size_t i = 0; i < 4 * 4 * 4; i += 4) source.Data()[i] = 220;
+
+  auto make_dst = [] { return MakeUniformBuffer(4, 4, 25, 35, 45, 55); };
+
+  auto dst1           = make_dst();
+  const auto baseline = dst1.Clone();
+  BlendInPlace(dst1, source, Blending::kDissolve, Alpha::kStraight, 50);
+
+  auto dst2 = make_dst();
+  BlendInPlace(dst2, source, Blending::kDissolve, Alpha::kStraight, 50);
+
+  EXPECT_EQ(dst1, dst2);
+
+  const auto changed = CountChangedPixels(dst1, baseline);
+  EXPECT_GT(changed, 0u);
+  EXPECT_LT(changed, dst1.PixelCount());
 }
 
 }  // namespace weqeqq::image

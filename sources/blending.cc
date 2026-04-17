@@ -85,12 +85,71 @@ inline uint32_t Div255Wide(uint32_t v) noexcept {
   return (v + (v >> 8)) >> 8;
 }
 
+inline void ValidateBlendOpacity(int opacity) {
+  if (opacity < kBlendOpacityMin || opacity > kBlendOpacityMax) {
+    throw BlendOpacityOutOfRangeError(opacity, kBlendOpacityMin,
+                                      kBlendOpacityMax);
+  }
+}
+
+inline std::uint8_t PercentToOpacityByte(int opacity) noexcept {
+  return static_cast<std::uint8_t>((opacity * 255 + 50) / 100);
+}
+
+inline std::uint8_t ScaleByOpacityScalar(std::uint8_t value,
+                                         std::uint8_t opacity) noexcept {
+  return static_cast<std::uint8_t>(
+      Div255(static_cast<std::uint16_t>(value) * opacity));
+}
+
+inline std::uint8_t MixByOpacityScalar(std::uint8_t base, std::uint8_t blend,
+                                       std::uint8_t opacity) noexcept {
+  const auto inv = static_cast<std::uint16_t>(255 - opacity);
+  return static_cast<std::uint8_t>(
+      Div255Wide(static_cast<std::uint32_t>(base) * inv +
+                 static_cast<std::uint32_t>(blend) * opacity));
+}
+
+inline void ScalePremultipliedPixelScalar(std::uint8_t &r, std::uint8_t &g,
+                                          std::uint8_t &b, std::uint8_t &a,
+                                          std::uint8_t opacity) noexcept {
+  r = ScaleByOpacityScalar(r, opacity);
+  g = ScaleByOpacityScalar(g, opacity);
+  b = ScaleByOpacityScalar(b, opacity);
+  a = ScaleByOpacityScalar(a, opacity);
+}
+
 #if WQIMAGE_SIMD
 
 template <typename D, HWY_IF_U16_D(D)>
 HWY_INLINE auto Div255(D d, hn::VFromD<D> v) noexcept {
   v = hn::Add(v, hn::Set(d, uint16_t{128}));
   return hn::ShiftRight<8>(hn::Add(v, hn::ShiftRight<8>(v)));
+}
+
+template <typename D, HWY_IF_U16_D(D)>
+HWY_INLINE auto ScaleByOpacitySimd(D d, hn::VFromD<D> value,
+                                   hn::VFromD<D> opacity) noexcept {
+  return Div255(d, hn::Mul(value, opacity));
+}
+
+template <typename D, HWY_IF_U16_D(D)>
+HWY_INLINE auto MixByOpacitySimd(D d, hn::VFromD<D> base, hn::VFromD<D> blend,
+                                 hn::VFromD<D> opacity) noexcept {
+  const auto v255 = hn::Set(d, uint16_t{255});
+  const auto inv  = hn::Sub(v255, opacity);
+  return Div255(d, hn::Add(hn::Mul(base, inv), hn::Mul(blend, opacity)));
+}
+
+template <typename D, HWY_IF_U16_D(D)>
+HWY_INLINE void ScalePremultipliedPixelSimd(D d, hn::VFromD<D> &r,
+                                            hn::VFromD<D> &g, hn::VFromD<D> &b,
+                                            hn::VFromD<D> &a,
+                                            hn::VFromD<D> opacity) noexcept {
+  r = ScaleByOpacitySimd(d, r, opacity);
+  g = ScaleByOpacitySimd(d, g, opacity);
+  b = ScaleByOpacitySimd(d, b, opacity);
+  a = ScaleByOpacitySimd(d, a, opacity);
 }
 
 template <typename BlockFn, typename TailFn>
@@ -1189,7 +1248,7 @@ HWY_INLINE void ApplyBlendToGraySimd(D d, V &dv, V sv) {
 #endif  // WQIMAGE_SIMD
 
 using BlendFn = void (*)(std::uint8_t *, std::size_t, const std::uint8_t *,
-                         std::size_t, const Region &,
+                         std::size_t, const Region &, std::uint8_t,
                          parallel::ExecutionPolicy) noexcept;
 
 // --- Blend Kernels: generic scalar kernel ----------------------------------
@@ -1198,7 +1257,10 @@ template <Color C, Blending B, Alpha A>
 void BlendInPlaceKernelScalar(std::uint8_t *dst_data, std::size_t dst_stride,
                               const std::uint8_t *src_data,
                               std::size_t src_stride, const Region &region,
+                              std::uint8_t opacity,
                               parallel::ExecutionPolicy exec) noexcept {
+  const auto full_opacity = opacity == kU8Max;
+
   ForEachRegionRow(region, exec, [&](std::size_t dy, std::size_t sy) {
     for (std::size_t col = 0; col < region.w; col++) {
       const auto dx = region.dx_start + col;
@@ -1216,7 +1278,19 @@ void BlendInPlaceKernelScalar(std::uint8_t *dst_data, std::size_t dst_stride,
         auto br = dr, bg = dg, bb = db;
         ApplyBlendToRgbScalar<B>(br, bg, bb, sr, sg, sb);
 
-        AlphaCompositePixelScalar<A>(dr, dg, db, da, br, bg, bb, sa);
+        if constexpr (A == Alpha::kPremultiplied) {
+          auto effective_sa = sa;
+          if (!full_opacity) {
+            ScalePremultipliedPixelScalar(br, bg, bb, effective_sa, opacity);
+          }
+          AlphaCompositePixelScalar<A>(dr, dg, db, da, br, bg, bb,
+                                       effective_sa);
+        } else {
+          const auto effective_sa =
+              full_opacity ? sa : ScaleByOpacityScalar(sa, opacity);
+          AlphaCompositePixelScalar<A>(dr, dg, db, da, br, bg, bb,
+                                       effective_sa);
+        }
 
         dst_data[d_off + 0] = dr;
         dst_data[d_off + 1] = dg;
@@ -1228,11 +1302,17 @@ void BlendInPlaceKernelScalar(std::uint8_t *dst_data, std::size_t dst_stride,
         const auto s_off = PixelOffset<Color::kRgb>(src_stride, sx, sy);
 
         auto dr = dst_data[d_off + 0], dg = dst_data[d_off + 1],
-             db = dst_data[d_off + 2];
+             db            = dst_data[d_off + 2];
+        const auto dr_base = dr, dg_base = dg, db_base = db;
         auto sr = src_data[s_off + 0], sg = src_data[s_off + 1],
              sb = src_data[s_off + 2];
 
         ApplyBlendToRgbScalar<B>(dr, dg, db, sr, sg, sb);
+        if (!full_opacity) {
+          dr = MixByOpacityScalar(dr_base, dr, opacity);
+          dg = MixByOpacityScalar(dg_base, dg, opacity);
+          db = MixByOpacityScalar(db_base, db, opacity);
+        }
 
         dst_data[d_off + 0] = dr;
         dst_data[d_off + 1] = dg;
@@ -1242,10 +1322,14 @@ void BlendInPlaceKernelScalar(std::uint8_t *dst_data, std::size_t dst_stride,
         const auto d_off = PixelOffset<Color::kGrayscale>(dst_stride, dx, dy);
         const auto s_off = PixelOffset<Color::kGrayscale>(src_stride, sx, sy);
 
-        auto dy_val = dst_data[d_off];
-        auto sy_val = src_data[s_off];
+        auto dy_val        = dst_data[d_off];
+        const auto dy_base = dy_val;
+        auto sy_val        = src_data[s_off];
 
         ApplyBlendToGrayScalar<B>(dy_val, sy_val);
+        if (!full_opacity) {
+          dy_val = MixByOpacityScalar(dy_base, dy_val, opacity);
+        }
         dst_data[d_off] = dy_val;
       }
     }
@@ -1260,10 +1344,13 @@ template <Color C, Blending B, Alpha A>
 void BlendInPlaceKernelSimd(std::uint8_t *dst_data, std::size_t dst_stride,
                             const std::uint8_t *src_data,
                             std::size_t src_stride, const Region &region,
+                            std::uint8_t opacity,
                             parallel::ExecutionPolicy exec) noexcept {
   const auto du16              = hn::ScalableTag<std::uint16_t>{};
   const auto du8h              = hn::Rebind<std::uint8_t, decltype(du16)>{};
   const std::size_t lane_count = hn::Lanes(du16);
+  const auto v_opacity         = hn::Set(du16, static_cast<uint16_t>(opacity));
+  const auto full_opacity      = opacity == kU8Max;
 
   ForEachRegionRow(region, exec, [&](std::size_t dy, std::size_t sy) {
     if constexpr (C == Color::kRgba) {
@@ -1291,7 +1378,20 @@ void BlendInPlaceKernelSimd(std::uint8_t *dst_data, std::size_t dst_stride,
 
         auto br = dr, bg = dg, bb = db;
         ApplyBlendToRgbSimd<B>(du16, br, bg, bb, sr, sg, sb);
-        AlphaCompositePixelSimd<A>(du16, dr, dg, db, da, br, bg, bb, sa);
+        if constexpr (A == Alpha::kPremultiplied) {
+          auto effective_sa = sa;
+          if (!full_opacity) {
+            ScalePremultipliedPixelSimd(du16, br, bg, bb, effective_sa,
+                                        v_opacity);
+          }
+          AlphaCompositePixelSimd<A>(du16, dr, dg, db, da, br, bg, bb,
+                                     effective_sa);
+        } else {
+          auto effective_sa =
+              full_opacity ? sa : ScaleByOpacitySimd(du16, sa, v_opacity);
+          AlphaCompositePixelSimd<A>(du16, dr, dg, db, da, br, bg, bb,
+                                     effective_sa);
+        }
 
         hn::StoreInterleaved4(hn::DemoteTo(du8h, dr), hn::DemoteTo(du8h, dg),
                               hn::DemoteTo(du8h, db), hn::DemoteTo(du8h, da),
@@ -1311,8 +1411,20 @@ void BlendInPlaceKernelSimd(std::uint8_t *dst_data, std::size_t dst_stride,
 
         auto br_c = dr_c, bg_c = dg_c, bb_c = db_c;
         ApplyBlendToRgbScalar<B>(br_c, bg_c, bb_c, sr_c, sg_c, sb_c);
-        AlphaCompositePixelScalar<A>(dr_c, dg_c, db_c, da_c, br_c, bg_c, bb_c,
-                                     sa_c);
+        if constexpr (A == Alpha::kPremultiplied) {
+          auto effective_sa = sa_c;
+          if (!full_opacity) {
+            ScalePremultipliedPixelScalar(br_c, bg_c, bb_c, effective_sa,
+                                          opacity);
+          }
+          AlphaCompositePixelScalar<A>(dr_c, dg_c, db_c, da_c, br_c, bg_c, bb_c,
+                                       effective_sa);
+        } else {
+          const auto effective_sa =
+              full_opacity ? sa_c : ScaleByOpacityScalar(sa_c, opacity);
+          AlphaCompositePixelScalar<A>(dr_c, dg_c, db_c, da_c, br_c, bg_c, bb_c,
+                                       effective_sa);
+        }
 
         dst_data[d_off + 0] = dr_c;
         dst_data[d_off + 1] = dg_c;
@@ -1339,11 +1451,17 @@ void BlendInPlaceKernelSimd(std::uint8_t *dst_data, std::size_t dst_stride,
         hn::LoadInterleaved3(du8h, src_data + s_off, sr8, sg8, sb8);
 
         auto dr = hn::PromoteTo(du16, dr8), dg = hn::PromoteTo(du16, dg8),
-             db = hn::PromoteTo(du16, db8);
+             db            = hn::PromoteTo(du16, db8);
+        const auto dr_base = dr, dg_base = dg, db_base = db;
         auto sr = hn::PromoteTo(du16, sr8), sg = hn::PromoteTo(du16, sg8),
              sb = hn::PromoteTo(du16, sb8);
 
         ApplyBlendToRgbSimd<B>(du16, dr, dg, db, sr, sg, sb);
+        if (!full_opacity) {
+          dr = MixByOpacitySimd(du16, dr_base, dr, v_opacity);
+          dg = MixByOpacitySimd(du16, dg_base, dg, v_opacity);
+          db = MixByOpacitySimd(du16, db_base, db, v_opacity);
+        }
 
         hn::StoreInterleaved3(hn::DemoteTo(du8h, dr), hn::DemoteTo(du8h, dg),
                               hn::DemoteTo(du8h, db), du8h, dst_data + d_off);
@@ -1356,11 +1474,17 @@ void BlendInPlaceKernelSimd(std::uint8_t *dst_data, std::size_t dst_stride,
         const auto s_off = sy * src_stride + sx * kRgbChannelCount;
 
         auto dr_c = dst_data[d_off + 0], dg_c = dst_data[d_off + 1],
-             db_c = dst_data[d_off + 2];
+             db_c          = dst_data[d_off + 2];
+        const auto dr_base = dr_c, dg_base = dg_c, db_base = db_c;
         auto sr_c = src_data[s_off + 0], sg_c = src_data[s_off + 1],
              sb_c = src_data[s_off + 2];
 
         ApplyBlendToRgbScalar<B>(dr_c, dg_c, db_c, sr_c, sg_c, sb_c);
+        if (!full_opacity) {
+          dr_c = MixByOpacityScalar(dr_base, dr_c, opacity);
+          dg_c = MixByOpacityScalar(dg_base, dg_c, opacity);
+          db_c = MixByOpacityScalar(db_base, db_c, opacity);
+        }
 
         dst_data[d_off + 0] = dr_c;
         dst_data[d_off + 1] = dg_c;
@@ -1374,10 +1498,14 @@ void BlendInPlaceKernelSimd(std::uint8_t *dst_data, std::size_t dst_stride,
         const auto d_off = dy * dst_stride + dx;
         const auto s_off = sy * src_stride + sx;
 
-        auto dv = dst_data[d_off];
-        auto sv = src_data[s_off];
+        auto dv            = dst_data[d_off];
+        const auto dv_base = dv;
+        auto sv            = src_data[s_off];
 
         ApplyBlendToGrayScalar<B>(dv, sv);
+        if (!full_opacity) {
+          dv = MixByOpacityScalar(dv_base, dv, opacity);
+        }
 
         dst_data[d_off] = dv;
       }
@@ -1407,7 +1535,10 @@ template <Color C, Alpha A>
 void BlendInPlaceKernelDissolve(std::uint8_t *dst_data, std::size_t dst_stride,
                                 const std::uint8_t *src_data,
                                 std::size_t src_stride, const Region &region,
+                                std::uint8_t opacity,
                                 parallel::ExecutionPolicy exec) noexcept {
+  const auto full_opacity = opacity == kU8Max;
+
   ForEachRegionRow(region, exec, [&](std::size_t dy, std::size_t sy) {
     for (std::size_t col = 0; col < region.w; col++) {
       const auto dx = region.dx_start + col;
@@ -1417,9 +1548,12 @@ void BlendInPlaceKernelDissolve(std::uint8_t *dst_data, std::size_t dst_stride,
         const auto d_off = PixelOffset<Color::kRgba>(dst_stride, dx, dy);
         const auto s_off = PixelOffset<Color::kRgba>(src_stride, sx, sy);
 
-        const auto sa = src_data[s_off + 3];
-        // threshold in [0,255]: pixel appears if hash < sa
-        if ((PixelHash(dx, dy) & 0xffu) < static_cast<std::uint32_t>(sa)) {
+        const auto effective_sa =
+            full_opacity ? src_data[s_off + 3]
+                         : ScaleByOpacityScalar(src_data[s_off + 3], opacity);
+        if (effective_sa == kU8Max ||
+            (PixelHash(dx, dy) & 0xffu) <
+                static_cast<std::uint32_t>(effective_sa)) {
           dst_data[d_off + 0] = src_data[s_off + 0];
           dst_data[d_off + 1] = src_data[s_off + 1];
           dst_data[d_off + 2] = src_data[s_off + 2];
@@ -1427,16 +1561,22 @@ void BlendInPlaceKernelDissolve(std::uint8_t *dst_data, std::size_t dst_stride,
         }
 
       } else if constexpr (C == Color::kRgb) {
-        const auto d_off    = PixelOffset<Color::kRgb>(dst_stride, dx, dy);
-        const auto s_off    = PixelOffset<Color::kRgb>(src_stride, sx, sy);
-        dst_data[d_off + 0] = src_data[s_off + 0];
-        dst_data[d_off + 1] = src_data[s_off + 1];
-        dst_data[d_off + 2] = src_data[s_off + 2];
+        if (full_opacity ||
+            (PixelHash(dx, dy) & 0xffu) < static_cast<std::uint32_t>(opacity)) {
+          const auto d_off    = PixelOffset<Color::kRgb>(dst_stride, dx, dy);
+          const auto s_off    = PixelOffset<Color::kRgb>(src_stride, sx, sy);
+          dst_data[d_off + 0] = src_data[s_off + 0];
+          dst_data[d_off + 1] = src_data[s_off + 1];
+          dst_data[d_off + 2] = src_data[s_off + 2];
+        }
 
       } else if constexpr (C == Color::kGrayscale) {
-        const auto d_off = PixelOffset<Color::kGrayscale>(dst_stride, dx, dy);
-        const auto s_off = PixelOffset<Color::kGrayscale>(src_stride, sx, sy);
-        dst_data[d_off]  = src_data[s_off];
+        if (full_opacity ||
+            (PixelHash(dx, dy) & 0xffu) < static_cast<std::uint32_t>(opacity)) {
+          const auto d_off = PixelOffset<Color::kGrayscale>(dst_stride, dx, dy);
+          const auto s_off = PixelOffset<Color::kGrayscale>(src_stride, sx, sy);
+          dst_data[d_off]  = src_data[s_off];
+        }
       }
     }
   });
@@ -1497,16 +1637,19 @@ inline constexpr auto kDispatchTable =
 
 inline void BlendInPlaceImpl(Buffer &dst, const Buffer &src,
                              std::ptrdiff_t x_off, std::ptrdiff_t y_off,
-                             Blending blending, Alpha alpha,
+                             Blending blending, Alpha alpha, int opacity,
                              parallel::ExecutionPolicy exec) {
   assert(dst.Color() == src.Color());
+  ValidateBlendOpacity(opacity);
+  if (opacity == kBlendOpacityMin) return;
 
   auto color = dst.Color();
 
   if (color == Color::kCmyk) {
     auto dst_rgb = image::ConvertColor(dst, Color::kRgb);
     auto src_rgb = image::ConvertColor(src, Color::kRgb);
-    BlendInPlaceImpl(dst_rgb, src_rgb, x_off, y_off, blending, alpha, exec);
+    BlendInPlaceImpl(dst_rgb, src_rgb, x_off, y_off, blending, alpha, opacity,
+                     exec);
     image::ConvertColor(dst_rgb, dst);
     return;
   }
@@ -1522,8 +1665,9 @@ inline void BlendInPlaceImpl(Buffer &dst, const Buffer &src,
   auto fn = kDispatchTable[static_cast<std::size_t>(index)];
   assert(fn != nullptr);
 
+  const auto opacity_u8 = PercentToOpacityByte(opacity);
   fn(dst.Data(), dst.Width() * dst.ChannelCount(), src.Data(),
-     src.Width() * src.ChannelCount(), region, exec);
+     src.Width() * src.ChannelCount(), region, opacity_u8, exec);
 }
 
 #if WQIMAGE_SIMD
@@ -1556,10 +1700,11 @@ void UnpremultiplyInPlace(
 
 void BlendInPlace(Buffer &destination, const Buffer &source,
                   std::ptrdiff_t x_offset, std::ptrdiff_t y_offset,
-                  Blending blending, Alpha alpha,
-                  parallel::ExecutionPolicy execution) noexcept(!kDebug) {
-  HWY_DYNAMIC_DISPATCH(internal::BlendInPlaceImpl)(
-      destination, source, x_offset, y_offset, blending, alpha, execution);
+                  Blending blending, Alpha alpha, int opacity,
+                  parallel::ExecutionPolicy execution) {
+  HWY_DYNAMIC_DISPATCH(internal::BlendInPlaceImpl)(destination, source,
+                                                   x_offset, y_offset, blending,
+                                                   alpha, opacity, execution);
 }
 #endif
 
@@ -1582,10 +1727,10 @@ void UnpremultiplyInPlace(
 
 void BlendInPlace(Buffer &destination, const Buffer &source,
                   std::ptrdiff_t x_offset, std::ptrdiff_t y_offset,
-                  Blending blending, Alpha alpha,
-                  parallel::ExecutionPolicy execution) noexcept(!kDebug) {
+                  Blending blending, Alpha alpha, int opacity,
+                  parallel::ExecutionPolicy execution) {
   internal::BlendInPlaceImpl(destination, source, x_offset, y_offset, blending,
-                             alpha, execution);
+                             alpha, opacity, execution);
 }
 
 }  // namespace weqeqq::image

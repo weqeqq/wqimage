@@ -35,6 +35,7 @@ enum class ErrorCode {
   kAdjustmentBrightnessOutOfRange,
   kAdjustmentContrastOutOfRange,
   kAdjustmentInvalidMode,
+  kBlendOpacityOutOfRange,
 };
 
 }  // namespace weqeqq::image
@@ -104,6 +105,8 @@ class ImageErrorCategory final : public std::error_category {
         return "contrast value is out of range";
       case ErrorCode::kAdjustmentInvalidMode:
         return "adjustment mode is invalid";
+      case ErrorCode::kBlendOpacityOutOfRange:
+        return "blend opacity is out of range";
     }
     return "unknown image error";
   }

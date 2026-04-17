@@ -30,6 +30,8 @@ global:
   *weqeqq::image::AdjustmentBrightnessOutOfRangeError*;
   *weqeqq::image::AdjustmentContrastOutOfRangeError*;
   *weqeqq::image::AdjustmentInvalidModeError*;
+  *weqeqq::image::BlendError*;
+  *weqeqq::image::BlendOpacityOutOfRangeError*;
   *weqeqq::image::BufferError*;
   *weqeqq::image::BufferUninitializedError*;
   *weqeqq::image::BufferLinearIndexOutOfBoundsError*;

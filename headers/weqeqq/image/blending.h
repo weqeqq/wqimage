@@ -3,8 +3,11 @@
 
 #include <weqeqq/image/buffer.h>
 #include <weqeqq/image/config.h>
+#include <weqeqq/image/error.h>
 #include <weqeqq/image/export.h>
 #include <weqeqq/parallel.h>
+
+#include <source_location>
 
 namespace weqeqq::image {
 
@@ -58,14 +61,38 @@ enum class Alpha {
   kCount,
 };
 
+inline constexpr int kBlendOpacityMin = 0;
+inline constexpr int kBlendOpacityMax = 100;
+
+struct WQIMAGE_EXPORT BlendError : Error {
+  using Error::Error;
+};
+
+struct WQIMAGE_EXPORT BlendOpacityOutOfRangeError : BlendError {
+  BlendOpacityOutOfRangeError(
+      int value, int min, int max,
+      std::source_location location = std::source_location::current())
+      : BlendError(
+            ErrorCode::kBlendOpacityOutOfRange,
+            {"blend opacity is out of range",
+             {
+                 {"value", value},
+                 {"min", min},
+                 {"max", max},
+             },
+             "Blend opacity accepts only values inside the supported percent "
+             "range.",
+             "Pass an opacity between 0 and 100 inclusive.",
+             location}) {}
+};
+
 /***************************************************
  *                   Premultiply                   *
  ***************************************************/
 
 WQIMAGE_EXPORT void PremultiplyInPlace(
-    Buffer &buffer,
-    parallel::ExecutionPolicy = parallel::Execution::kSequential) noexcept(
-    !kDebug);
+    Buffer &buffer, parallel::ExecutionPolicy =
+                        parallel::Execution::kSequential) noexcept(!kDebug);
 
 inline Buffer Premultiply(
     Buffer buffer, parallel::ExecutionPolicy execution =
@@ -93,51 +120,52 @@ inline Buffer Unpremultiply(
  *                      Blend                      *
  ***************************************************/
 
-WQIMAGE_EXPORT void BlendInPlace(           //
-    Buffer &destination,                    //
-    const Buffer &source,                   //
-    std::ptrdiff_t x_offset,                //
-    std::ptrdiff_t y_offset,                //
-    Blending blending = Blending::kNormal,  //
-    Alpha alpha       = Alpha::kStraight,   //
-    parallel::ExecutionPolicy execution =
-        parallel::Execution::kSequential) noexcept(!kDebug);
+WQIMAGE_EXPORT void BlendInPlace(                             //
+    Buffer &destination,                                      //
+    const Buffer &source,                                     //
+    std::ptrdiff_t x_offset,                                  //
+    std::ptrdiff_t y_offset,                                  //
+    Blending blending                   = Blending::kNormal,  //
+    Alpha alpha                         = Alpha::kStraight,   //
+    int opacity                         = kBlendOpacityMax,   //
+    parallel::ExecutionPolicy execution = parallel::Execution::kSequential);
 
-inline void BlendInPlace(                   //
-    Buffer &destination,                    //
-    const Buffer &source,                   //
-    Blending blending = Blending::kNormal,  //
-    Alpha alpha       = Alpha::kStraight,   //
-    parallel::ExecutionPolicy execution =
-        parallel::Execution::kSequential) noexcept(!kDebug) {
+inline void BlendInPlace(                                     //
+    Buffer &destination,                                      //
+    const Buffer &source,                                     //
+    Blending blending                   = Blending::kNormal,  //
+    Alpha alpha                         = Alpha::kStraight,   //
+    int opacity                         = kBlendOpacityMax,   //
+    parallel::ExecutionPolicy execution = parallel::Execution::kSequential) {
   //
-  return BlendInPlace(destination, source, 0, 0, blending, alpha, execution);
+  return BlendInPlace(destination, source, 0, 0, blending, alpha, opacity,
+                      execution);
 }
 
-inline Buffer Blend(                        //
-    Buffer destination,                     //
-    const Buffer &source,                   //
-    std::ptrdiff_t x_offset,                //
-    std::ptrdiff_t y_offset,                //
-    Blending blending = Blending::kNormal,  //
-    Alpha alpha       = Alpha::kStraight,   //
-    parallel::ExecutionPolicy execution =
-        parallel::Execution::kSequential) noexcept(!kDebug) {
+inline Buffer Blend(                                          //
+    Buffer destination,                                       //
+    const Buffer &source,                                     //
+    std::ptrdiff_t x_offset,                                  //
+    std::ptrdiff_t y_offset,                                  //
+    Blending blending                   = Blending::kNormal,  //
+    Alpha alpha                         = Alpha::kStraight,   //
+    int opacity                         = kBlendOpacityMax,   //
+    parallel::ExecutionPolicy execution = parallel::Execution::kSequential) {
   //
   BlendInPlace(destination, source, x_offset, y_offset, blending, alpha,
-               execution);
+               opacity, execution);
   return destination;
 }
 
-inline Buffer Blend(                        //
-    Buffer destination,                     //
-    const Buffer &source,                   //
-    Blending blending = Blending::kNormal,  //
-    Alpha alpha       = Alpha::kStraight,   //
-    parallel::ExecutionPolicy execution =
-        parallel::Execution::kSequential) noexcept(!kDebug) {
+inline Buffer Blend(                                          //
+    Buffer destination,                                       //
+    const Buffer &source,                                     //
+    Blending blending                   = Blending::kNormal,  //
+    Alpha alpha                         = Alpha::kStraight,   //
+    int opacity                         = kBlendOpacityMax,   //
+    parallel::ExecutionPolicy execution = parallel::Execution::kSequential) {
   //
-  return Blend(std::move(destination), source, 0, 0, blending, alpha,
+  return Blend(std::move(destination), source, 0, 0, blending, alpha, opacity,
                execution);
 }
 
