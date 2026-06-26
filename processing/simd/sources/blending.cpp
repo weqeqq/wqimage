@@ -1,0 +1,1331 @@
+#include <weqeqq/image/processing/simd.h>
+
+#include <algorithm>
+#include <array>
+#include <cassert>
+#include <cstddef>
+#include <cstdint>
+#include <utility>
+
+#if WQIMAGE_SIMD
+
+#undef HWY_TARGET_INCLUDE
+#define HWY_TARGET_INCLUDE "blending.cpp"
+
+#include <hwy/foreach_target.h>  // IWYU pragma: keep
+#include <hwy/highway.h>
+
+HWY_BEFORE_NAMESPACE();
+
+#endif
+
+namespace weqeqq::image::simd::internal {
+#if WQIMAGE_SIMD
+namespace HWY_NAMESPACE {
+
+namespace hn = hwy::HWY_NAMESPACE;
+#endif
+
+inline constexpr auto kRgbaChannelCount      = 4;
+inline constexpr auto kRgbChannelCount       = 3;
+inline constexpr auto kGrayscaleChannelCount = 1;
+inline constexpr std::uint16_t kU8Max        = 255;
+
+inline std::uint16_t Div255(std::uint16_t v) noexcept {
+  v += 128;
+  return (v + (v >> 8)) >> 8;
+}
+
+inline std::uint32_t Div255Wide(std::uint32_t v) noexcept {
+  v += 128;
+  return (v + (v >> 8)) >> 8;
+}
+
+inline std::uint8_t ScaleByOpacityScalar(std::uint8_t value,
+                                         std::uint8_t opacity) noexcept {
+  return static_cast<std::uint8_t>(
+      Div255(static_cast<std::uint16_t>(value) * opacity));
+}
+
+inline std::uint8_t MixByOpacityScalar(std::uint8_t base, std::uint8_t blend,
+                                       std::uint8_t opacity) noexcept {
+  const auto inv = static_cast<std::uint16_t>(255 - opacity);
+  return static_cast<std::uint8_t>(
+      Div255Wide(static_cast<std::uint32_t>(base) * inv +
+                 static_cast<std::uint32_t>(blend) * opacity));
+}
+
+inline void PremultiplyPixelScalar(std::uint8_t &r, std::uint8_t &g,
+                                   std::uint8_t &b, std::uint8_t a) noexcept {
+  r = Div255(r * a);
+  g = Div255(g * a);
+  b = Div255(b * a);
+}
+
+inline void ScalePremultipliedPixelScalar(std::uint8_t &r, std::uint8_t &g,
+                                          std::uint8_t &b, std::uint8_t &a,
+                                          std::uint8_t opacity) noexcept {
+  r = ScaleByOpacityScalar(r, opacity);
+  g = ScaleByOpacityScalar(g, opacity);
+  b = ScaleByOpacityScalar(b, opacity);
+  a = ScaleByOpacityScalar(a, opacity);
+}
+
+inline constexpr auto kRecipTable = [] consteval {
+  std::array<std::uint16_t, 256> table{};
+  table[0] = 0;
+  for (int alpha = 1; alpha < 256; alpha++) {
+    table[alpha] = static_cast<std::uint16_t>((255 * 256 + alpha - 1) / alpha);
+  }
+  return table;
+}();
+
+inline void UnpremultiplyPixelScalar(std::uint8_t &r, std::uint8_t &g,
+                                     std::uint8_t &b, std::uint8_t a) {
+  if (a == 0) {
+    r = g = b = 0;
+  } else {
+    const auto mul = kRecipTable[a];
+    r = static_cast<std::uint8_t>(std::min<std::uint16_t>(255, (r * mul) >> 8));
+    g = static_cast<std::uint8_t>(std::min<std::uint16_t>(255, (g * mul) >> 8));
+    b = static_cast<std::uint8_t>(std::min<std::uint16_t>(255, (b * mul) >> 8));
+  }
+}
+
+#if WQIMAGE_SIMD
+
+template <typename D, HWY_IF_U16_D(D)>
+HWY_INLINE auto Div255(D d, hn::VFromD<D> v) noexcept {
+  v = hn::Add(v, hn::Set(d, std::uint16_t{128}));
+  return hn::ShiftRight<8>(hn::Add(v, hn::ShiftRight<8>(v)));
+}
+
+template <typename D, HWY_IF_U16_D(D)>
+HWY_INLINE auto ScaleByOpacitySimd(D d, hn::VFromD<D> value,
+                                   hn::VFromD<D> opacity) noexcept {
+  return Div255(d, hn::Mul(value, opacity));
+}
+
+template <typename D, HWY_IF_U16_D(D)>
+HWY_INLINE auto MixByOpacitySimd(D d, hn::VFromD<D> base, hn::VFromD<D> blend,
+                                 hn::VFromD<D> opacity) noexcept {
+  const auto v255 = hn::Set(d, std::uint16_t{255});
+  const auto inv  = hn::Sub(v255, opacity);
+  return Div255(d, hn::Add(hn::Mul(base, inv), hn::Mul(blend, opacity)));
+}
+
+template <typename D, HWY_IF_U16_D(D)>
+HWY_INLINE void ScalePremultipliedPixelSimd(D d, hn::VFromD<D> &r,
+                                            hn::VFromD<D> &g, hn::VFromD<D> &b,
+                                            hn::VFromD<D> &a,
+                                            hn::VFromD<D> opacity) noexcept {
+  r = ScaleByOpacitySimd(d, r, opacity);
+  g = ScaleByOpacitySimd(d, g, opacity);
+  b = ScaleByOpacitySimd(d, b, opacity);
+  a = ScaleByOpacitySimd(d, a, opacity);
+}
+
+template <typename D, HWY_IF_U16_D(D)>
+HWY_INLINE void PremultiplyPixelSimd(D d, hn::VFromD<D> &r, hn::VFromD<D> &g,
+                                     hn::VFromD<D> &b,
+                                     hn::VFromD<D> a) noexcept {
+  r = Div255(d, hn::Mul(r, a));
+  g = Div255(d, hn::Mul(g, a));
+  b = Div255(d, hn::Mul(b, a));
+}
+
+template <typename D, typename V = hn::VFromD<D>, HWY_IF_U16_D(D)>
+HWY_INLINE void UnpremultiplyPixelSimd(D d, V &r, V &g, V &b, V a) noexcept {
+  const auto lane_count = hn::Lanes(d);
+  const auto v255       = hn::Set(d, std::uint16_t{255});
+  const auto zero       = hn::Zero(d);
+
+  HWY_ALIGN std::uint16_t alpha_buffer[hn::MaxLanes(d)];
+  HWY_ALIGN std::uint16_t mul_buffer[hn::MaxLanes(d)];
+
+  hn::Store(a, d, alpha_buffer);
+  for (std::size_t index = 0; index < lane_count; index++) {
+    mul_buffer[index] = kRecipTable[alpha_buffer[index]];
+  }
+  auto mul  = hn::Load(d, mul_buffer);
+  auto mask = hn::Eq(a, zero);
+
+  r = hn::IfThenZeroElse(mask,
+                         hn::Min(hn::ShiftRight<8>(hn::Mul(r, mul)), v255));
+  g = hn::IfThenZeroElse(mask,
+                         hn::Min(hn::ShiftRight<8>(hn::Mul(g, mul)), v255));
+  b = hn::IfThenZeroElse(mask,
+                         hn::Min(hn::ShiftRight<8>(hn::Mul(b, mul)), v255));
+}
+
+#endif  // WQIMAGE_SIMD
+
+enum class BlendCategory { kSeparable, kComponent, kSpecial };
+
+template <Blending B>
+inline constexpr BlendCategory CategoryOf = BlendCategory::kSeparable;
+
+template <>
+inline constexpr auto CategoryOf<Blending::kDarkerColor> =
+    BlendCategory::kComponent;
+template <>
+inline constexpr auto CategoryOf<Blending::kLighterColor> =
+    BlendCategory::kComponent;
+template <>
+inline constexpr auto CategoryOf<Blending::kHue> = BlendCategory::kComponent;
+template <>
+inline constexpr auto CategoryOf<Blending::kSaturation> =
+    BlendCategory::kComponent;
+template <>
+inline constexpr auto CategoryOf<Blending::kColor> = BlendCategory::kComponent;
+template <>
+inline constexpr auto CategoryOf<Blending::kLuminosity> =
+    BlendCategory::kComponent;
+template <>
+inline constexpr auto CategoryOf<Blending::kDissolve> = BlendCategory::kSpecial;
+
+template <Blending Blending_>
+  requires(Blending_ == Blending::kNormal)
+void BlendChannelScalar(std::uint8_t &destination, std::uint8_t &source) {
+  destination = source;
+}
+
+template <Blending Blending_>
+  requires(Blending_ == Blending::kDarken)
+void BlendChannelScalar(std::uint8_t &destination, std::uint8_t &source) {
+  destination = std::min(destination, source);
+}
+
+template <Blending Blending_>
+  requires(Blending_ == Blending::kMultiply)
+void BlendChannelScalar(std::uint8_t &destination, std::uint8_t &source) {
+  destination = Div255(destination * source);
+}
+
+template <Blending Blending_>
+  requires(Blending_ == Blending::kColorBurn)
+void BlendChannelScalar(std::uint8_t &destination, std::uint8_t &source) {
+  auto d = destination, s = source;
+  if (s == 0) {
+    destination = 0;
+  } else {
+    auto v      = (255 - d) * 255 / s;
+    destination = static_cast<std::uint8_t>(v > 255 ? 0 : 255 - v);
+  }
+}
+
+template <Blending Blending_>
+  requires(Blending_ == Blending::kLinearBurn)
+void BlendChannelScalar(std::uint8_t &destination, std::uint8_t &source) {
+  auto sum    = static_cast<int>(destination) + source;
+  destination = static_cast<std::uint8_t>(sum > 255 ? sum - 255 : 0);
+}
+
+template <Blending Blending_>
+  requires(Blending_ == Blending::kLighten)
+void BlendChannelScalar(std::uint8_t &destination, std::uint8_t &source) {
+  destination = std::max(destination, source);
+}
+
+template <Blending Blending_>
+  requires(Blending_ == Blending::kScreen)
+void BlendChannelScalar(std::uint8_t &destination, std::uint8_t &source) {
+  destination = static_cast<std::uint8_t>(destination + source -
+                                          Div255(destination * source));
+}
+
+template <Blending Blending_>
+  requires(Blending_ == Blending::kColorDodge)
+void BlendChannelScalar(std::uint8_t &destination, std::uint8_t &source) {
+  if (source == 255) {
+    destination = 255;
+  } else {
+    auto v      = static_cast<int>(destination) * 255 / (255 - source);
+    destination = static_cast<std::uint8_t>(std::min(v, 255));
+  }
+}
+
+template <Blending Blending_>
+  requires(Blending_ == Blending::kLinearDodge)
+void BlendChannelScalar(std::uint8_t &destination, std::uint8_t &source) {
+  auto sum    = static_cast<int>(destination) + source;
+  destination = static_cast<std::uint8_t>(std::min(sum, 255));
+}
+
+template <Blending Blending_>
+  requires(Blending_ == Blending::kOverlay)
+void BlendChannelScalar(std::uint8_t &destination, std::uint8_t &source) {
+  auto d = destination, s = source;
+  if (2 * d < 255) {
+    destination = static_cast<std::uint8_t>(Div255(2 * d * s));
+  } else {
+    destination =
+        static_cast<std::uint8_t>(255 - Div255(2 * (255 - d) * (255 - s)));
+  }
+}
+
+inline constexpr auto kSqrt255Table = [] consteval {
+  std::array<std::uint8_t, 256> table{};
+  table[0] = 0;
+  for (int i = 1; i < 256; i++) {
+    double v = i / 255.0;
+    double x = v;
+    for (int j = 0; j < 30; j++) {
+      x = 0.5 * (x + v / x);
+    }
+    table[i] = static_cast<std::uint8_t>(x * 255.0);
+  }
+  return table;
+}();
+
+template <Blending Blending_>
+  requires(Blending_ == Blending::kSoftLight)
+void BlendChannelScalar(std::uint8_t &destination, std::uint8_t &source) {
+  int d = destination, s = source;
+  int result;
+  if (2 * s <= 255) {
+    result = d - (255 - 2 * s) * d * (255 - d) / (255 * 255);
+  } else if (4 * d <= 255) {
+    int D  = ((16 * d - 12 * 255) * d + 4 * 255 * 255) * d / (255 * 255);
+    result = d + (2 * s - 255) * (D - d) / 255;
+  } else {
+    int sq = kSqrt255Table[d];
+    result = d + (2 * s - 255) * (sq - d) / 255;
+  }
+  destination = static_cast<std::uint8_t>(std::clamp(result, 0, 255));
+}
+
+template <Blending Blending_>
+  requires(Blending_ == Blending::kHardLight)
+void BlendChannelScalar(std::uint8_t &destination, std::uint8_t &source) {
+  auto d = destination, s = source;
+  if (2 * s < 255) {
+    destination = static_cast<std::uint8_t>(Div255(2 * d * s));
+  } else {
+    destination =
+        static_cast<std::uint8_t>(255 - Div255(2 * (255 - d) * (255 - s)));
+  }
+}
+
+template <Blending Blending_>
+  requires(Blending_ == Blending::kVividLight)
+void BlendChannelScalar(std::uint8_t &destination, std::uint8_t &source) {
+  auto d = destination, s = source;
+  if (s == 0) {
+    destination = 0;
+  } else if (2 * s <= 255) {
+    auto s2     = static_cast<std::uint8_t>(2 * s);
+    auto v      = (255 - d) * 255 / s2;
+    destination = static_cast<std::uint8_t>(v > 255 ? 0 : 255 - v);
+  } else if (s == 255) {
+    destination = 255;
+  } else {
+    auto s2     = 2 * s - 255;
+    auto v      = static_cast<int>(d) * 255 / (255 - s2);
+    destination = static_cast<std::uint8_t>(std::min(v, 255));
+  }
+}
+
+template <Blending Blending_>
+  requires(Blending_ == Blending::kLinearLight)
+void BlendChannelScalar(std::uint8_t &destination, std::uint8_t &source) {
+  auto v      = static_cast<int>(destination) + 2 * source - 255;
+  destination = static_cast<std::uint8_t>(std::clamp(v, 0, 255));
+}
+
+template <Blending Blending_>
+  requires(Blending_ == Blending::kPinLight)
+void BlendChannelScalar(std::uint8_t &destination, std::uint8_t &source) {
+  auto d = destination, s = source;
+  if (2 * s <= 255) {
+    destination = std::min(d, static_cast<std::uint8_t>(2 * s));
+  } else {
+    destination = std::max(d, static_cast<std::uint8_t>(2 * s - 255));
+  }
+}
+
+template <Blending Blending_>
+  requires(Blending_ == Blending::kHardMix)
+void BlendChannelScalar(std::uint8_t &destination, std::uint8_t &source) {
+  destination = static_cast<std::uint8_t>(
+      static_cast<int>(destination) + source >= 255 ? 255 : 0);
+}
+
+template <Blending Blending_>
+  requires(Blending_ == Blending::kDifference)
+void BlendChannelScalar(std::uint8_t &destination, std::uint8_t &source) {
+  destination = static_cast<std::uint8_t>(
+      destination > source ? destination - source : source - destination);
+}
+
+template <Blending Blending_>
+  requires(Blending_ == Blending::kExclusion)
+void BlendChannelScalar(std::uint8_t &destination, std::uint8_t &source) {
+  destination = static_cast<std::uint8_t>(
+      destination + source - Div255Wide(2u * destination * source));
+}
+
+template <Blending Blending_>
+  requires(Blending_ == Blending::kSubtract)
+void BlendChannelScalar(std::uint8_t &destination, std::uint8_t &source) {
+  destination =
+      static_cast<std::uint8_t>(destination > source ? destination - source : 0);
+}
+
+template <Blending Blending_>
+  requires(Blending_ == Blending::kDivide)
+void BlendChannelScalar(std::uint8_t &destination, std::uint8_t &source) {
+  if (source == 0) {
+    destination = 255;
+  } else {
+    auto v      = static_cast<int>(destination) * 255 / source;
+    destination = static_cast<std::uint8_t>(std::min(v, 255));
+  }
+}
+
+#if WQIMAGE_SIMD
+
+template <Blending Blending_, typename D, typename V = hn::VFromD<D>>
+HWY_INLINE void BlendChannelSimdViaScalarLanes(D d, V &destination, V source) {
+  const auto lane_count = hn::Lanes(d);
+  HWY_ALIGN std::uint16_t d_buf[hn::MaxLanes(d)];
+  HWY_ALIGN std::uint16_t s_buf[hn::MaxLanes(d)];
+  hn::Store(destination, d, d_buf);
+  hn::Store(source, d, s_buf);
+  for (std::size_t i = 0; i < lane_count; i++) {
+    auto dv = static_cast<std::uint8_t>(d_buf[i]);
+    auto sv = static_cast<std::uint8_t>(s_buf[i]);
+    BlendChannelScalar<Blending_>(dv, sv);
+    d_buf[i] = dv;
+  }
+  destination = hn::Load(d, d_buf);
+}
+
+template <Blending Blending_, typename D, typename V = hn::VFromD<D>>
+  requires(Blending_ == Blending::kNormal)
+HWY_INLINE void BlendChannelSimd(D, V &destination, V source) {
+  destination = source;
+}
+
+template <Blending Blending_, typename D, typename V = hn::VFromD<D>>
+  requires(Blending_ == Blending::kDarken)
+HWY_INLINE void BlendChannelSimd(D, V &destination, V source) {
+  destination = hn::Min(destination, source);
+}
+
+template <Blending Blending_, typename D, typename V = hn::VFromD<D>>
+  requires(Blending_ == Blending::kMultiply)
+HWY_INLINE void BlendChannelSimd(D d, V &destination, V source) {
+  destination = Div255(d, hn::Mul(destination, source));
+}
+
+template <Blending Blending_, typename D, typename V = hn::VFromD<D>>
+  requires(Blending_ == Blending::kColorBurn)
+HWY_INLINE void BlendChannelSimd(D d, V &destination, V source) {
+  BlendChannelSimdViaScalarLanes<Blending::kColorBurn>(d, destination, source);
+}
+
+template <Blending Blending_, typename D, typename V = hn::VFromD<D>>
+  requires(Blending_ == Blending::kLinearBurn)
+HWY_INLINE void BlendChannelSimd(D d, V &destination, V source) {
+  const auto v255 = hn::Set(d, std::uint16_t{255});
+  auto sum        = hn::Add(destination, source);
+  auto underflow  = hn::Lt(sum, v255);
+  destination     = hn::IfThenZeroElse(underflow, hn::Sub(sum, v255));
+}
+
+template <Blending Blending_, typename D, typename V = hn::VFromD<D>>
+  requires(Blending_ == Blending::kLighten)
+HWY_INLINE void BlendChannelSimd(D, V &destination, V source) {
+  destination = hn::Max(destination, source);
+}
+
+template <Blending Blending_, typename D, typename V = hn::VFromD<D>>
+  requires(Blending_ == Blending::kScreen)
+HWY_INLINE void BlendChannelSimd(D d, V &destination, V source) {
+  destination = hn::Sub(hn::Add(destination, source),
+                        Div255(d, hn::Mul(destination, source)));
+}
+
+template <Blending Blending_, typename D, typename V = hn::VFromD<D>>
+  requires(Blending_ == Blending::kColorDodge)
+HWY_INLINE void BlendChannelSimd(D d, V &destination, V source) {
+  BlendChannelSimdViaScalarLanes<Blending::kColorDodge>(d, destination, source);
+}
+
+template <Blending Blending_, typename D, typename V = hn::VFromD<D>>
+  requires(Blending_ == Blending::kLinearDodge)
+HWY_INLINE void BlendChannelSimd(D d, V &destination, V source) {
+  const auto v255 = hn::Set(d, std::uint16_t{255});
+  destination     = hn::Min(v255, hn::Add(destination, source));
+}
+
+template <Blending Blending_, typename D, typename V = hn::VFromD<D>>
+  requires(Blending_ == Blending::kOverlay)
+HWY_INLINE void BlendChannelSimd(D d, V &destination, V source) {
+  const auto v255 = hn::Set(d, std::uint16_t{255});
+  const auto two  = hn::Set(d, std::uint16_t{2});
+  auto d2         = hn::Mul(two, destination);
+  auto mask       = hn::Lt(d2, v255);
+  auto lo         = Div255(d, hn::Mul(d2, source));
+  auto inv_d      = hn::Sub(v255, destination);
+  auto inv_s      = hn::Sub(v255, source);
+  auto hi     = hn::Sub(v255, Div255(d, hn::Mul(hn::Mul(two, inv_d), inv_s)));
+  destination = hn::IfThenElse(mask, lo, hi);
+}
+
+template <Blending Blending_, typename D, typename V = hn::VFromD<D>>
+  requires(Blending_ == Blending::kSoftLight)
+HWY_INLINE void BlendChannelSimd(D d, V &destination, V source) {
+  BlendChannelSimdViaScalarLanes<Blending::kSoftLight>(d, destination, source);
+}
+
+template <Blending Blending_, typename D, typename V = hn::VFromD<D>>
+  requires(Blending_ == Blending::kHardLight)
+HWY_INLINE void BlendChannelSimd(D d, V &destination, V source) {
+  const auto v255 = hn::Set(d, std::uint16_t{255});
+  const auto two  = hn::Set(d, std::uint16_t{2});
+  auto s2         = hn::Mul(two, source);
+  auto mask       = hn::Lt(s2, v255);
+  auto lo         = Div255(d, hn::Mul(hn::Mul(two, destination), source));
+  auto inv_d      = hn::Sub(v255, destination);
+  auto inv_s      = hn::Sub(v255, source);
+  auto hi     = hn::Sub(v255, Div255(d, hn::Mul(hn::Mul(two, inv_d), inv_s)));
+  destination = hn::IfThenElse(mask, lo, hi);
+}
+
+template <Blending Blending_, typename D, typename V = hn::VFromD<D>>
+  requires(Blending_ == Blending::kVividLight)
+HWY_INLINE void BlendChannelSimd(D d, V &destination, V source) {
+  BlendChannelSimdViaScalarLanes<Blending::kVividLight>(d, destination, source);
+}
+
+template <Blending Blending_, typename D, typename V = hn::VFromD<D>>
+  requires(Blending_ == Blending::kLinearLight)
+HWY_INLINE void BlendChannelSimd(D d, V &destination, V source) {
+  const auto v255 = hn::Set(d, std::uint16_t{255});
+  const auto zero = hn::Zero(d);
+  const auto two  = hn::Set(d, std::uint16_t{2});
+  auto sum        = hn::Add(destination, hn::Mul(two, source));
+  auto raw        = hn::Sub(sum, v255);
+  auto underflow  = hn::Lt(sum, v255);
+  destination     = hn::IfThenElse(underflow, zero, hn::Min(v255, raw));
+}
+
+template <Blending Blending_, typename D, typename V = hn::VFromD<D>>
+  requires(Blending_ == Blending::kPinLight)
+HWY_INLINE void BlendChannelSimd(D d, V &destination, V source) {
+  const auto v255 = hn::Set(d, std::uint16_t{255});
+  const auto two  = hn::Set(d, std::uint16_t{2});
+  auto s2         = hn::Mul(two, source);
+  auto mask       = hn::Le(s2, v255);
+  auto lo         = hn::Min(destination, s2);
+  auto hi         = hn::Max(destination, hn::Sub(s2, v255));
+  destination     = hn::IfThenElse(mask, lo, hi);
+}
+
+template <Blending Blending_, typename D, typename V = hn::VFromD<D>>
+  requires(Blending_ == Blending::kHardMix)
+HWY_INLINE void BlendChannelSimd(D d, V &destination, V source) {
+  const auto v255 = hn::Set(d, std::uint16_t{255});
+  auto sum        = hn::Add(destination, source);
+  auto mask       = hn::Ge(sum, v255);
+  destination     = hn::IfThenElseZero(mask, v255);
+}
+
+template <Blending Blending_, typename D, typename V = hn::VFromD<D>>
+  requires(Blending_ == Blending::kDifference)
+HWY_INLINE void BlendChannelSimd(D, V &destination, V source) {
+  auto gt_mask = hn::Gt(destination, source);
+  auto hi      = hn::Sub(destination, source);
+  auto lo      = hn::Sub(source, destination);
+  destination  = hn::IfThenElse(gt_mask, hi, lo);
+}
+
+template <Blending Blending_, typename D, typename V = hn::VFromD<D>>
+  requires(Blending_ == Blending::kExclusion)
+HWY_INLINE void BlendChannelSimd(D d, V &destination, V source) {
+  BlendChannelSimdViaScalarLanes<Blending::kExclusion>(d, destination, source);
+}
+
+template <Blending Blending_, typename D, typename V = hn::VFromD<D>>
+  requires(Blending_ == Blending::kSubtract)
+HWY_INLINE void BlendChannelSimd(D, V &destination, V source) {
+  auto mask   = hn::Gt(destination, source);
+  destination = hn::IfThenElseZero(mask, hn::Sub(destination, source));
+}
+
+template <Blending Blending_, typename D, typename V = hn::VFromD<D>>
+  requires(Blending_ == Blending::kDivide)
+HWY_INLINE void BlendChannelSimd(D d, V &destination, V source) {
+  BlendChannelSimdViaScalarLanes<Blending::kDivide>(d, destination, source);
+}
+
+#endif  // WQIMAGE_SIMD
+
+inline std::uint8_t LuminosityScalar(std::uint8_t r, std::uint8_t g,
+                                     std::uint8_t b) noexcept {
+  return static_cast<std::uint8_t>((77 * r + 150 * g + 29 * b) >> 8);
+}
+
+inline int LumI(int r, int g, int b) noexcept {
+  return (77 * r + 150 * g + 29 * b) >> 8;
+}
+
+inline void ClipColor(int &r, int &g, int &b) noexcept {
+  const int lum = LumI(r, g, b);
+  const int mn  = std::min({r, g, b});
+  const int mx  = std::max({r, g, b});
+  if (mn < 0) {
+    r = lum + ((r - lum) * lum) / (lum - mn);
+    g = lum + ((g - lum) * lum) / (lum - mn);
+    b = lum + ((b - lum) * lum) / (lum - mn);
+  }
+  if (mx > 255) {
+    r = lum + ((r - lum) * (255 - lum)) / (mx - lum);
+    g = lum + ((g - lum) * (255 - lum)) / (mx - lum);
+    b = lum + ((b - lum) * (255 - lum)) / (mx - lum);
+  }
+}
+
+inline void SetLum(int &r, int &g, int &b, int lum) noexcept {
+  const int d = lum - LumI(r, g, b);
+  r += d;
+  g += d;
+  b += d;
+  ClipColor(r, g, b);
+}
+
+inline int SatI(int r, int g, int b) noexcept {
+  return std::max({r, g, b}) - std::min({r, g, b});
+}
+
+inline void SetSatInPlace(int &cmin, int &cmid, int &cmax, int sat) noexcept {
+  if (cmax > cmin) {
+    cmid = ((cmid - cmin) * sat) / (cmax - cmin);
+    cmax = sat;
+  } else {
+    cmid = cmax = 0;
+  }
+  cmin = 0;
+}
+
+inline void SetSat(int &r, int &g, int &b, int sat) noexcept {
+  int *ptr[3] = {&r, &g, &b};
+  if (*ptr[0] > *ptr[1]) std::swap(ptr[0], ptr[1]);
+  if (*ptr[1] > *ptr[2]) std::swap(ptr[1], ptr[2]);
+  if (*ptr[0] > *ptr[1]) std::swap(ptr[0], ptr[1]);
+  SetSatInPlace(*ptr[0], *ptr[1], *ptr[2], sat);
+}
+
+template <Blending Blending_>
+  requires(CategoryOf<Blending_> == BlendCategory::kComponent &&
+           Blending_ == Blending::kLighterColor)
+inline void BlendColorScalar(std::uint8_t &dr, std::uint8_t &dg,
+                             std::uint8_t &db, std::uint8_t sr, std::uint8_t sg,
+                             std::uint8_t sb) noexcept {
+  if (LuminosityScalar(sr, sg, sb) > LuminosityScalar(dr, dg, db)) {
+    dr = sr;
+    dg = sg;
+    db = sb;
+  }
+}
+
+template <Blending Blending_>
+  requires(CategoryOf<Blending_> == BlendCategory::kComponent &&
+           Blending_ == Blending::kLighterColor)
+inline void BlendColorScalar(std::uint8_t &dy, std::uint8_t sy) noexcept {
+  BlendChannelScalar<Blending::kLighten>(dy, sy);
+}
+
+template <Blending Blending_>
+  requires(CategoryOf<Blending_> == BlendCategory::kComponent &&
+           Blending_ == Blending::kDarkerColor)
+inline void BlendColorScalar(std::uint8_t &dr, std::uint8_t &dg,
+                             std::uint8_t &db, std::uint8_t sr, std::uint8_t sg,
+                             std::uint8_t sb) noexcept {
+  if (LuminosityScalar(sr, sg, sb) < LuminosityScalar(dr, dg, db)) {
+    dr = sr;
+    dg = sg;
+    db = sb;
+  }
+}
+
+template <Blending Blending_>
+  requires(CategoryOf<Blending_> == BlendCategory::kComponent &&
+           Blending_ == Blending::kDarkerColor)
+inline void BlendColorScalar(std::uint8_t &dy, std::uint8_t sy) noexcept {
+  BlendChannelScalar<Blending::kDarken>(dy, sy);
+}
+
+template <Blending Blending_>
+  requires(Blending_ == Blending::kHue)
+inline void BlendColorScalar(std::uint8_t &dr, std::uint8_t &dg,
+                             std::uint8_t &db, std::uint8_t sr, std::uint8_t sg,
+                             std::uint8_t sb) noexcept {
+  int r = sr, g = sg, b = sb;
+  SetSat(r, g, b, SatI(dr, dg, db));
+  SetLum(r, g, b, LumI(dr, dg, db));
+  dr = static_cast<std::uint8_t>(std::clamp(r, 0, 255));
+  dg = static_cast<std::uint8_t>(std::clamp(g, 0, 255));
+  db = static_cast<std::uint8_t>(std::clamp(b, 0, 255));
+}
+
+template <Blending Blending_>
+  requires(Blending_ == Blending::kHue)
+inline void BlendColorScalar(std::uint8_t &, std::uint8_t) noexcept {}
+
+template <Blending Blending_>
+  requires(Blending_ == Blending::kSaturation)
+inline void BlendColorScalar(std::uint8_t &dr, std::uint8_t &dg,
+                             std::uint8_t &db, std::uint8_t sr, std::uint8_t sg,
+                             std::uint8_t sb) noexcept {
+  int r = dr, g = dg, b = db;
+  SetSat(r, g, b, SatI(sr, sg, sb));
+  SetLum(r, g, b, LumI(dr, dg, db));
+  dr = static_cast<std::uint8_t>(std::clamp(r, 0, 255));
+  dg = static_cast<std::uint8_t>(std::clamp(g, 0, 255));
+  db = static_cast<std::uint8_t>(std::clamp(b, 0, 255));
+}
+
+template <Blending Blending_>
+  requires(Blending_ == Blending::kSaturation)
+inline void BlendColorScalar(std::uint8_t &, std::uint8_t) noexcept {}
+
+template <Blending Blending_>
+  requires(Blending_ == Blending::kColor)
+inline void BlendColorScalar(std::uint8_t &dr, std::uint8_t &dg,
+                             std::uint8_t &db, std::uint8_t sr, std::uint8_t sg,
+                             std::uint8_t sb) noexcept {
+  int r = sr, g = sg, b = sb;
+  SetLum(r, g, b, LumI(dr, dg, db));
+  dr = static_cast<std::uint8_t>(std::clamp(r, 0, 255));
+  dg = static_cast<std::uint8_t>(std::clamp(g, 0, 255));
+  db = static_cast<std::uint8_t>(std::clamp(b, 0, 255));
+}
+
+template <Blending Blending_>
+  requires(Blending_ == Blending::kColor)
+inline void BlendColorScalar(std::uint8_t &, std::uint8_t) noexcept {}
+
+template <Blending Blending_>
+  requires(Blending_ == Blending::kLuminosity)
+inline void BlendColorScalar(std::uint8_t &dr, std::uint8_t &dg,
+                             std::uint8_t &db, std::uint8_t sr, std::uint8_t sg,
+                             std::uint8_t sb) noexcept {
+  int r = dr, g = dg, b = db;
+  SetLum(r, g, b, LumI(sr, sg, sb));
+  dr = static_cast<std::uint8_t>(std::clamp(r, 0, 255));
+  dg = static_cast<std::uint8_t>(std::clamp(g, 0, 255));
+  db = static_cast<std::uint8_t>(std::clamp(b, 0, 255));
+}
+
+template <Blending Blending_>
+  requires(Blending_ == Blending::kLuminosity)
+inline void BlendColorScalar(std::uint8_t &dy, std::uint8_t sy) noexcept {
+  dy = sy;
+}
+
+#if WQIMAGE_SIMD
+
+template <typename D, HWY_IF_U16_D(D)>
+HWY_INLINE hn::VFromD<D> LuminositySimd(D d, hn::VFromD<D> r, hn::VFromD<D> g,
+                                        hn::VFromD<D> b) {
+  auto rm = hn::Mul(r, hn::Set(d, std::uint16_t{77}));
+  auto gm = hn::Mul(g, hn::Set(d, std::uint16_t{150}));
+  auto bm = hn::Mul(b, hn::Set(d, std::uint16_t{29}));
+  return hn::ShiftRight<8>(hn::Add(hn::Add(rm, gm), bm));
+}
+
+template <Blending Blending_, typename D, typename V = hn::VFromD<D>,
+          HWY_IF_U16_D(D)>
+  requires(CategoryOf<Blending_> == BlendCategory::kComponent &&
+           Blending_ == Blending::kLighterColor)
+HWY_INLINE void BlendColorSimd(D d, V &dr, V &dg, V &db, V sr, V sg, V sb) {
+  auto mask =
+      hn::Gt(LuminositySimd(d, sr, sg, sb), LuminositySimd(d, dr, dg, db));
+  dr = hn::IfThenElse(mask, sr, dr);
+  dg = hn::IfThenElse(mask, sg, dg);
+  db = hn::IfThenElse(mask, sb, db);
+}
+
+template <Blending Blending_, typename D, typename V = hn::VFromD<D>,
+          HWY_IF_U16_D(D)>
+  requires(CategoryOf<Blending_> == BlendCategory::kComponent &&
+           Blending_ == Blending::kLighterColor)
+HWY_INLINE void BlendColorSimd(D d, V &dy, V sy) {
+  BlendChannelSimd<Blending::kLighten>(d, dy, sy);
+}
+
+template <Blending Blending_, typename D, typename V = hn::VFromD<D>,
+          HWY_IF_U16_D(D)>
+  requires(CategoryOf<Blending_> == BlendCategory::kComponent &&
+           Blending_ == Blending::kDarkerColor)
+HWY_INLINE void BlendColorSimd(D d, V &dr, V &dg, V &db, V sr, V sg, V sb) {
+  auto mask =
+      hn::Lt(LuminositySimd(d, sr, sg, sb), LuminositySimd(d, dr, dg, db));
+  dr = hn::IfThenElse(mask, sr, dr);
+  dg = hn::IfThenElse(mask, sg, dg);
+  db = hn::IfThenElse(mask, sb, db);
+}
+
+template <Blending Blending_, typename D, typename V = hn::VFromD<D>,
+          HWY_IF_U16_D(D)>
+  requires(CategoryOf<Blending_> == BlendCategory::kComponent &&
+           Blending_ == Blending::kDarkerColor)
+HWY_INLINE void BlendColorSimd(D d, V &dy, V sy) {
+  BlendChannelSimd<Blending::kDarken>(d, dy, sy);
+}
+
+template <Blending Blending_, typename D, typename V = hn::VFromD<D>,
+          HWY_IF_U16_D(D)>
+HWY_INLINE void BlendColorSimdViaScalarLanesRgb(D d, V &dr, V &dg, V &db, V sr,
+                                                V sg, V sb) {
+  const auto lane_count = hn::Lanes(d);
+  HWY_ALIGN std::uint16_t dr_b[hn::MaxLanes(d)], dg_b[hn::MaxLanes(d)],
+      db_b[hn::MaxLanes(d)];
+  HWY_ALIGN std::uint16_t sr_b[hn::MaxLanes(d)], sg_b[hn::MaxLanes(d)],
+      sb_b[hn::MaxLanes(d)];
+  hn::Store(dr, d, dr_b);
+  hn::Store(dg, d, dg_b);
+  hn::Store(db, d, db_b);
+  hn::Store(sr, d, sr_b);
+  hn::Store(sg, d, sg_b);
+  hn::Store(sb, d, sb_b);
+  for (std::size_t i = 0; i < lane_count; i++) {
+    auto dr_i = static_cast<std::uint8_t>(dr_b[i]);
+    auto dg_i = static_cast<std::uint8_t>(dg_b[i]);
+    auto db_i = static_cast<std::uint8_t>(db_b[i]);
+    auto sr_i = static_cast<std::uint8_t>(sr_b[i]);
+    auto sg_i = static_cast<std::uint8_t>(sg_b[i]);
+    auto sb_i = static_cast<std::uint8_t>(sb_b[i]);
+    BlendColorScalar<Blending_>(dr_i, dg_i, db_i, sr_i, sg_i, sb_i);
+    dr_b[i] = dr_i;
+    dg_b[i] = dg_i;
+    db_b[i] = db_i;
+  }
+  dr = hn::Load(d, dr_b);
+  dg = hn::Load(d, dg_b);
+  db = hn::Load(d, db_b);
+}
+
+template <Blending Blending_, typename D, typename V = hn::VFromD<D>,
+          HWY_IF_U16_D(D)>
+HWY_INLINE void BlendColorSimdViaScalarLanesGray(D d, V &dy, V sy) {
+  const auto lane_count = hn::Lanes(d);
+  HWY_ALIGN std::uint16_t dy_b[hn::MaxLanes(d)], sy_b[hn::MaxLanes(d)];
+  hn::Store(dy, d, dy_b);
+  hn::Store(sy, d, sy_b);
+  for (std::size_t i = 0; i < lane_count; i++) {
+    auto dy_i = static_cast<std::uint8_t>(dy_b[i]);
+    auto sy_i = static_cast<std::uint8_t>(sy_b[i]);
+    BlendColorScalar<Blending_>(dy_i, sy_i);
+    dy_b[i] = dy_i;
+  }
+  dy = hn::Load(d, dy_b);
+}
+
+template <Blending Blending_, typename D, typename V = hn::VFromD<D>,
+          HWY_IF_U16_D(D)>
+  requires(Blending_ == Blending::kHue || Blending_ == Blending::kSaturation ||
+           Blending_ == Blending::kColor || Blending_ == Blending::kLuminosity)
+HWY_INLINE void BlendColorSimd(D d, V &dr, V &dg, V &db, V sr, V sg, V sb) {
+  BlendColorSimdViaScalarLanesRgb<Blending_>(d, dr, dg, db, sr, sg, sb);
+}
+
+template <Blending Blending_, typename D, typename V = hn::VFromD<D>,
+          HWY_IF_U16_D(D)>
+  requires(Blending_ == Blending::kHue || Blending_ == Blending::kSaturation ||
+           Blending_ == Blending::kColor || Blending_ == Blending::kLuminosity)
+HWY_INLINE void BlendColorSimd(D d, V &dy, V sy) {
+  BlendColorSimdViaScalarLanesGray<Blending_>(d, dy, sy);
+}
+
+#endif  // WQIMAGE_SIMD
+
+template <Alpha Alpha_>
+inline void AlphaCompositePixelScalar(std::uint8_t &dr, std::uint8_t &dg,
+                                      std::uint8_t &db, std::uint8_t &da,
+                                      std::uint8_t sr, std::uint8_t sg,
+                                      std::uint8_t sb,
+                                      std::uint8_t sa) noexcept {
+  if constexpr (Alpha_ == Alpha::kPremultiplied) {
+    const auto inv = 255 - sa;
+    dr             = static_cast<std::uint8_t>(sr + Div255(dr * inv));
+    dg             = static_cast<std::uint8_t>(sg + Div255(dg * inv));
+    db             = static_cast<std::uint8_t>(sb + Div255(db * inv));
+    da             = static_cast<std::uint8_t>(
+        std::min<std::uint16_t>(255, sa + Div255(da * inv)));
+  } else {
+    PremultiplyPixelScalar(sr, sg, sb, sa);
+    PremultiplyPixelScalar(dr, dg, db, da);
+    AlphaCompositePixelScalar<Alpha::kPremultiplied>(dr, dg, db, da, sr, sg, sb,
+                                                     sa);
+    UnpremultiplyPixelScalar(dr, dg, db, da);
+  }
+}
+
+#if WQIMAGE_SIMD
+
+template <Alpha Alpha_, typename D, typename V = hn::VFromD<D>, HWY_IF_U16_D(D)>
+HWY_INLINE void AlphaCompositePixelSimd(D d, V &dr, V &dg, V &db, V &da, V sr,
+                                        V sg, V sb, V sa) {
+  const auto v255 = hn::Set(d, std::uint16_t{255});
+  const auto inv  = hn::Sub(v255, sa);
+
+  if constexpr (Alpha_ == Alpha::kPremultiplied) {
+    dr = hn::Add(sr, Div255(d, hn::Mul(dr, inv)));
+    dg = hn::Add(sg, Div255(d, hn::Mul(dg, inv)));
+    db = hn::Add(sb, Div255(d, hn::Mul(db, inv)));
+    da = hn::Min(v255, hn::Add(sa, Div255(d, hn::Mul(da, inv))));
+  } else {
+    PremultiplyPixelSimd(d, sr, sg, sb, sa);
+    PremultiplyPixelSimd(d, dr, dg, db, da);
+    AlphaCompositePixelSimd<Alpha::kPremultiplied>(d, dr, dg, db, da, sr, sg, sb,
+                                                   sa);
+    UnpremultiplyPixelSimd(d, dr, dg, db, da);
+  }
+}
+
+#endif  // WQIMAGE_SIMD
+
+template <Blending B>
+inline void ApplyBlendToRgbScalar(std::uint8_t &dr, std::uint8_t &dg,
+                                  std::uint8_t &db, std::uint8_t sr,
+                                  std::uint8_t sg, std::uint8_t sb) noexcept {
+  if constexpr (CategoryOf<B> == BlendCategory::kSeparable) {
+    BlendChannelScalar<B>(dr, sr);
+    BlendChannelScalar<B>(dg, sg);
+    BlendChannelScalar<B>(db, sb);
+  } else if constexpr (CategoryOf<B> == BlendCategory::kComponent) {
+    BlendColorScalar<B>(dr, dg, db, sr, sg, sb);
+  }
+}
+
+template <Blending B>
+inline void ApplyBlendToGrayScalar(std::uint8_t &dv, std::uint8_t sv) noexcept {
+  if constexpr (CategoryOf<B> == BlendCategory::kSeparable) {
+    BlendChannelScalar<B>(dv, sv);
+  } else if constexpr (CategoryOf<B> == BlendCategory::kComponent) {
+    BlendColorScalar<B>(dv, sv);
+  }
+}
+
+#if WQIMAGE_SIMD
+
+template <Blending B, typename D, typename V = hn::VFromD<D>, HWY_IF_U16_D(D)>
+HWY_INLINE void ApplyBlendToRgbSimd(D d, V &dr, V &dg, V &db, V sr, V sg, V sb) {
+  if constexpr (CategoryOf<B> == BlendCategory::kSeparable) {
+    BlendChannelSimd<B>(d, dr, sr);
+    BlendChannelSimd<B>(d, dg, sg);
+    BlendChannelSimd<B>(d, db, sb);
+  } else if constexpr (CategoryOf<B> == BlendCategory::kComponent) {
+    BlendColorSimd<B>(d, dr, dg, db, sr, sg, sb);
+  }
+}
+
+#endif  // WQIMAGE_SIMD
+
+using BlendRowFn = void (*)(std::uint8_t *, const std::uint8_t *, std::size_t,
+                            std::size_t, std::size_t, std::uint8_t) noexcept;
+
+template <Color C, Blending B, Alpha A>
+void BlendRowScalar(std::uint8_t *dst, const std::uint8_t *src,
+                    std::size_t count, [[maybe_unused]] std::size_t dx_start,
+                    [[maybe_unused]] std::size_t dy,
+                    std::uint8_t opacity) noexcept {
+  const auto full_opacity = opacity == kU8Max;
+
+  for (std::size_t col = 0; col < count; col++) {
+    if constexpr (C == Color::kRgba) {
+      const auto off = col * kRgbaChannelCount;
+
+      auto dr = dst[off + 0], dg = dst[off + 1], db = dst[off + 2],
+           da = dst[off + 3];
+      auto sr = src[off + 0], sg = src[off + 1], sb = src[off + 2],
+           sa = src[off + 3];
+
+      auto br = dr, bg = dg, bb = db;
+      ApplyBlendToRgbScalar<B>(br, bg, bb, sr, sg, sb);
+
+      if constexpr (A == Alpha::kPremultiplied) {
+        auto effective_sa = sa;
+        if (!full_opacity) {
+          ScalePremultipliedPixelScalar(br, bg, bb, effective_sa, opacity);
+        }
+        AlphaCompositePixelScalar<A>(dr, dg, db, da, br, bg, bb, effective_sa);
+      } else {
+        const auto effective_sa =
+            full_opacity ? sa : ScaleByOpacityScalar(sa, opacity);
+        AlphaCompositePixelScalar<A>(dr, dg, db, da, br, bg, bb, effective_sa);
+      }
+
+      dst[off + 0] = dr;
+      dst[off + 1] = dg;
+      dst[off + 2] = db;
+      dst[off + 3] = da;
+
+    } else if constexpr (C == Color::kRgb) {
+      const auto off = col * kRgbChannelCount;
+
+      auto dr = dst[off + 0], dg = dst[off + 1], db = dst[off + 2];
+      const auto dr_base = dr, dg_base = dg, db_base = db;
+      auto sr = src[off + 0], sg = src[off + 1], sb = src[off + 2];
+
+      ApplyBlendToRgbScalar<B>(dr, dg, db, sr, sg, sb);
+      if (!full_opacity) {
+        dr = MixByOpacityScalar(dr_base, dr, opacity);
+        dg = MixByOpacityScalar(dg_base, dg, opacity);
+        db = MixByOpacityScalar(db_base, db, opacity);
+      }
+
+      dst[off + 0] = dr;
+      dst[off + 1] = dg;
+      dst[off + 2] = db;
+
+    } else if constexpr (C == Color::kGrayscale) {
+      auto dv            = dst[col];
+      const auto dv_base = dv;
+      auto sv            = src[col];
+
+      ApplyBlendToGrayScalar<B>(dv, sv);
+      if (!full_opacity) {
+        dv = MixByOpacityScalar(dv_base, dv, opacity);
+      }
+      dst[col] = dv;
+    }
+  }
+}
+
+#if WQIMAGE_SIMD
+
+template <Color C, Blending B, Alpha A>
+void BlendRowSimd(std::uint8_t *dst, const std::uint8_t *src, std::size_t count,
+                  [[maybe_unused]] std::size_t dx_start,
+                  [[maybe_unused]] std::size_t dy,
+                  std::uint8_t opacity) noexcept {
+  const auto du16              = hn::ScalableTag<std::uint16_t>{};
+  const auto du8h              = hn::Rebind<std::uint8_t, decltype(du16)>{};
+  const std::size_t lane_count = hn::Lanes(du16);
+  const auto v_opacity = hn::Set(du16, static_cast<std::uint16_t>(opacity));
+  const auto full_opacity = opacity == kU8Max;
+
+  if constexpr (C == Color::kRgba) {
+    const std::size_t block_count = count / lane_count;
+    const std::size_t tail_start  = block_count * lane_count;
+
+    for (std::size_t block = 0; block < block_count; block++) {
+      const auto off = block * lane_count * kRgbaChannelCount;
+
+      auto dr8 = hn::Undefined(du8h), dg8 = hn::Undefined(du8h),
+           db8 = hn::Undefined(du8h), da8 = hn::Undefined(du8h);
+      auto sr8 = hn::Undefined(du8h), sg8 = hn::Undefined(du8h),
+           sb8 = hn::Undefined(du8h), sa8 = hn::Undefined(du8h);
+
+      hn::LoadInterleaved4(du8h, dst + off, dr8, dg8, db8, da8);
+      hn::LoadInterleaved4(du8h, src + off, sr8, sg8, sb8, sa8);
+
+      auto dr = hn::PromoteTo(du16, dr8), dg = hn::PromoteTo(du16, dg8),
+           db = hn::PromoteTo(du16, db8), da = hn::PromoteTo(du16, da8);
+      auto sr = hn::PromoteTo(du16, sr8), sg = hn::PromoteTo(du16, sg8),
+           sb = hn::PromoteTo(du16, sb8), sa = hn::PromoteTo(du16, sa8);
+
+      auto br = dr, bg = dg, bb = db;
+      ApplyBlendToRgbSimd<B>(du16, br, bg, bb, sr, sg, sb);
+      if constexpr (A == Alpha::kPremultiplied) {
+        auto effective_sa = sa;
+        if (!full_opacity) {
+          ScalePremultipliedPixelSimd(du16, br, bg, bb, effective_sa,
+                                      v_opacity);
+        }
+        AlphaCompositePixelSimd<A>(du16, dr, dg, db, da, br, bg, bb,
+                                   effective_sa);
+      } else {
+        auto effective_sa =
+            full_opacity ? sa : ScaleByOpacitySimd(du16, sa, v_opacity);
+        AlphaCompositePixelSimd<A>(du16, dr, dg, db, da, br, bg, bb,
+                                   effective_sa);
+      }
+
+      hn::StoreInterleaved4(hn::DemoteTo(du8h, dr), hn::DemoteTo(du8h, dg),
+                            hn::DemoteTo(du8h, db), hn::DemoteTo(du8h, da), du8h,
+                            dst + off);
+    }
+
+    for (std::size_t col = tail_start; col < count; col++) {
+      BlendRowScalar<C, B, A>(dst + col * kRgbaChannelCount,
+                              src + col * kRgbaChannelCount, 1, dx_start, dy,
+                              opacity);
+    }
+
+  } else if constexpr (C == Color::kRgb) {
+    const std::size_t block_count = count / lane_count;
+    const std::size_t tail_start  = block_count * lane_count;
+
+    for (std::size_t block = 0; block < block_count; block++) {
+      const auto off = block * lane_count * kRgbChannelCount;
+
+      auto dr8 = hn::Undefined(du8h), dg8 = hn::Undefined(du8h),
+           db8 = hn::Undefined(du8h);
+      auto sr8 = hn::Undefined(du8h), sg8 = hn::Undefined(du8h),
+           sb8 = hn::Undefined(du8h);
+
+      hn::LoadInterleaved3(du8h, dst + off, dr8, dg8, db8);
+      hn::LoadInterleaved3(du8h, src + off, sr8, sg8, sb8);
+
+      auto dr = hn::PromoteTo(du16, dr8), dg = hn::PromoteTo(du16, dg8),
+           db = hn::PromoteTo(du16, db8);
+      const auto dr_base = dr, dg_base = dg, db_base = db;
+      auto sr = hn::PromoteTo(du16, sr8), sg = hn::PromoteTo(du16, sg8),
+           sb = hn::PromoteTo(du16, sb8);
+
+      ApplyBlendToRgbSimd<B>(du16, dr, dg, db, sr, sg, sb);
+      if (!full_opacity) {
+        dr = MixByOpacitySimd(du16, dr_base, dr, v_opacity);
+        dg = MixByOpacitySimd(du16, dg_base, dg, v_opacity);
+        db = MixByOpacitySimd(du16, db_base, db, v_opacity);
+      }
+
+      hn::StoreInterleaved3(hn::DemoteTo(du8h, dr), hn::DemoteTo(du8h, dg),
+                            hn::DemoteTo(du8h, db), du8h, dst + off);
+    }
+
+    for (std::size_t col = tail_start; col < count; col++) {
+      BlendRowScalar<C, B, A>(dst + col * kRgbChannelCount,
+                              src + col * kRgbChannelCount, 1, dx_start, dy,
+                              opacity);
+    }
+
+  } else if constexpr (C == Color::kGrayscale) {
+    BlendRowScalar<C, B, A>(dst, src, count, dx_start, dy, opacity);
+  }
+}
+
+#endif  // WQIMAGE_SIMD
+
+inline std::uint32_t PixelHash(std::size_t x, std::size_t y) noexcept {
+  auto v = static_cast<std::uint32_t>(x * 2654435761u ^ y * 2246822519u);
+  v ^= v >> 16;
+  v *= 0x45d9f3bu;
+  v ^= v >> 16;
+  return v;
+}
+
+template <Color C, Alpha A>
+void DissolveRow(std::uint8_t *dst, const std::uint8_t *src, std::size_t count,
+                 std::size_t dx_start, std::size_t dy,
+                 std::uint8_t opacity) noexcept {
+  const auto full_opacity = opacity == kU8Max;
+
+  for (std::size_t col = 0; col < count; col++) {
+    const auto dx = dx_start + col;
+
+    if constexpr (C == Color::kRgba) {
+      const auto off = col * kRgbaChannelCount;
+
+      const auto effective_sa =
+          full_opacity ? src[off + 3]
+                       : ScaleByOpacityScalar(src[off + 3], opacity);
+      if (effective_sa == kU8Max ||
+          (PixelHash(dx, dy) & 0xffu) <
+              static_cast<std::uint32_t>(effective_sa)) {
+        dst[off + 0] = src[off + 0];
+        dst[off + 1] = src[off + 1];
+        dst[off + 2] = src[off + 2];
+        dst[off + 3] = static_cast<std::uint8_t>(kU8Max);
+      }
+
+    } else if constexpr (C == Color::kRgb) {
+      if (full_opacity ||
+          (PixelHash(dx, dy) & 0xffu) < static_cast<std::uint32_t>(opacity)) {
+        const auto off = col * kRgbChannelCount;
+        dst[off + 0]   = src[off + 0];
+        dst[off + 1]   = src[off + 1];
+        dst[off + 2]   = src[off + 2];
+      }
+
+    } else if constexpr (C == Color::kGrayscale) {
+      if (full_opacity ||
+          (PixelHash(dx, dy) & 0xffu) < static_cast<std::uint32_t>(opacity)) {
+        dst[col] = src[col];
+      }
+    }
+  }
+}
+
+inline constexpr auto kColorCount    = static_cast<int>(Color::kCount);
+inline constexpr auto kBlendingCount = static_cast<int>(Blending::kCount);
+inline constexpr auto kAlphaCount    = static_cast<int>(Alpha::kCount);
+
+template <Color C, Blending B, Alpha A>
+constexpr BlendRowFn MakeBlendFn() {
+  if constexpr (C == Color::kCmyk) {
+    return nullptr;
+  } else if constexpr (B == Blending::kDissolve) {
+    return &DissolveRow<C, A>;
+  } else {
+#if WQIMAGE_SIMD
+    return &BlendRowSimd<C, B, A>;
+#else
+    return &BlendRowScalar<C, B, A>;
+#endif
+  }
+}
+
+template <std::size_t... Is>
+constexpr auto BuildDispatchTable(std::index_sequence<Is...>) {
+  return std::array<BlendRowFn, sizeof...(Is)>{[] {
+    constexpr auto i = Is;
+    constexpr auto c = static_cast<Color>(i / (kBlendingCount * kAlphaCount));
+    constexpr auto b =
+        static_cast<Blending>((i / kAlphaCount) % kBlendingCount);
+    constexpr auto a = static_cast<Alpha>(i % kAlphaCount);
+    return MakeBlendFn<c, b, a>();
+  }()...};
+}
+
+inline constexpr auto kDispatchTableSize =
+    kColorCount * kBlendingCount * kAlphaCount;
+
+inline constexpr auto kDispatchTable =
+    BuildDispatchTable(std::make_index_sequence<kDispatchTableSize>{});
+
+void BlendRowDispatch(Color color, Blending blending, Alpha alpha,
+                      std::uint8_t *dst, const std::uint8_t *src,
+                      std::size_t count, std::size_t dx_start, std::size_t dy,
+                      std::uint8_t opacity) {
+  const auto index = static_cast<int>(color) * kBlendingCount * kAlphaCount +
+                     static_cast<int>(blending) * kAlphaCount +
+                     static_cast<int>(alpha);
+  const auto fn = kDispatchTable[static_cast<std::size_t>(index)];
+  assert(fn != nullptr);
+  fn(dst, src, count, dx_start, dy, opacity);
+}
+
+void PremultiplySpanImpl(std::uint8_t *data, std::size_t pixel_count) {
+#if WQIMAGE_SIMD
+  const auto du16              = hn::ScalableTag<std::uint16_t>{};
+  const auto du8h              = hn::Rebind<std::uint8_t, decltype(du16)>{};
+  const std::size_t lane_count = hn::Lanes(du16);
+  const std::size_t block_count = pixel_count / lane_count;
+  const std::size_t tail_start  = block_count * lane_count;
+
+  for (std::size_t block = 0; block < block_count; block++) {
+    const std::size_t off = block * lane_count * kRgbaChannelCount;
+
+    auto r = hn::Undefined(du8h), g = hn::Undefined(du8h),
+         b = hn::Undefined(du8h), a = hn::Undefined(du8h);
+    hn::LoadInterleaved4(du8h, data + off, r, g, b, a);
+
+    auto r_u16 = hn::PromoteTo(du16, r), g_u16 = hn::PromoteTo(du16, g),
+         b_u16 = hn::PromoteTo(du16, b), a_u16 = hn::PromoteTo(du16, a);
+
+    PremultiplyPixelSimd(du16, r_u16, g_u16, b_u16, a_u16);
+
+    hn::StoreInterleaved4(hn::DemoteTo(du8h, r_u16), hn::DemoteTo(du8h, g_u16),
+                          hn::DemoteTo(du8h, b_u16), a, du8h, data + off);
+  }
+
+  for (std::size_t index = tail_start; index < pixel_count; index++) {
+    const std::size_t off = index * kRgbaChannelCount;
+    PremultiplyPixelScalar(data[off + 0], data[off + 1], data[off + 2],
+                           data[off + 3]);
+  }
+#else
+  for (std::size_t index = 0; index < pixel_count; index++) {
+    const std::size_t off = index * kRgbaChannelCount;
+    PremultiplyPixelScalar(data[off + 0], data[off + 1], data[off + 2],
+                           data[off + 3]);
+  }
+#endif
+}
+
+void UnpremultiplySpanImpl(std::uint8_t *data, std::size_t pixel_count) {
+#if WQIMAGE_SIMD
+  const auto du16              = hn::ScalableTag<std::uint16_t>{};
+  const auto du8h              = hn::Rebind<std::uint8_t, decltype(du16)>{};
+  const std::size_t lane_count = hn::Lanes(du16);
+  const std::size_t block_count = pixel_count / lane_count;
+  const std::size_t tail_start  = block_count * lane_count;
+
+  for (std::size_t block = 0; block < block_count; block++) {
+    const std::size_t off = block * lane_count * kRgbaChannelCount;
+
+    auto r = hn::Undefined(du8h), g = hn::Undefined(du8h),
+         b = hn::Undefined(du8h), a = hn::Undefined(du8h);
+    hn::LoadInterleaved4(du8h, data + off, r, g, b, a);
+
+    auto r_u16 = hn::PromoteTo(du16, r), g_u16 = hn::PromoteTo(du16, g),
+         b_u16 = hn::PromoteTo(du16, b), a_u16 = hn::PromoteTo(du16, a);
+
+    UnpremultiplyPixelSimd(du16, r_u16, g_u16, b_u16, a_u16);
+
+    hn::StoreInterleaved4(hn::DemoteTo(du8h, r_u16), hn::DemoteTo(du8h, g_u16),
+                          hn::DemoteTo(du8h, b_u16), a, du8h, data + off);
+  }
+
+  for (std::size_t index = tail_start; index < pixel_count; index++) {
+    const std::size_t off = index * kRgbaChannelCount;
+    UnpremultiplyPixelScalar(data[off + 0], data[off + 1], data[off + 2],
+                             data[off + 3]);
+  }
+#else
+  for (std::size_t index = 0; index < pixel_count; index++) {
+    const std::size_t off = index * kRgbaChannelCount;
+    UnpremultiplyPixelScalar(data[off + 0], data[off + 1], data[off + 2],
+                             data[off + 3]);
+  }
+#endif
+}
+
+#if WQIMAGE_SIMD
+}  // namespace HWY_NAMESPACE
+#endif
+}  // namespace weqeqq::image::simd::internal
+
+#if WQIMAGE_SIMD
+HWY_AFTER_NAMESPACE();
+#endif
+
+#if !WQIMAGE_SIMD || HWY_ONCE
+
+namespace weqeqq::image::simd {
+
+#if WQIMAGE_SIMD
+
+namespace internal {
+HWY_EXPORT(PremultiplySpanImpl);
+HWY_EXPORT(UnpremultiplySpanImpl);
+HWY_EXPORT(BlendRowDispatch);
+}  // namespace internal
+
+#define WQIMAGE_DISPATCH(Function) HWY_DYNAMIC_DISPATCH(internal::Function)
+
+#else
+
+#define WQIMAGE_DISPATCH(Function) internal::Function
+
+#endif  // WQIMAGE_SIMD
+
+#ifndef __CLANGD__
+
+void PremultiplySpan(std::uint8_t *data, std::size_t pixel_count) noexcept {
+  WQIMAGE_DISPATCH(PremultiplySpanImpl)(data, pixel_count);
+}
+
+void UnpremultiplySpan(std::uint8_t *data, std::size_t pixel_count) noexcept {
+  WQIMAGE_DISPATCH(UnpremultiplySpanImpl)(data, pixel_count);
+}
+
+void BlendRow(Color color, Blending blending, Alpha alpha, std::uint8_t *dst,
+              const std::uint8_t *src, std::size_t count, std::size_t dx_start,
+              std::size_t dy, std::uint8_t opacity) noexcept {
+  WQIMAGE_DISPATCH(BlendRowDispatch)
+  (color, blending, alpha, dst, src, count, dx_start, dy, opacity);
+}
+
+#endif  // __CLANGD__
+
+}  // namespace weqeqq::image::simd
+
+#endif  // !WQIMAGE_SIMD || HWY_ONCE
