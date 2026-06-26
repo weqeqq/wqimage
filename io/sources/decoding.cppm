@@ -6,7 +6,6 @@ module;
 #include <ios>
 #include <span>
 #include <system_error>
-#include <utility>
 #include <vector>
 
 export module weqeqq.image.io:decoding;
@@ -14,12 +13,16 @@ export module weqeqq.image.io:decoding;
 import :error;
 export import weqeqq.image;
 
-import weqeqq.png;
-import weqeqq.avif;
-
 namespace weqeqq::image {
 
 namespace internal {
+
+// Defined in decoding.cpp, which owns the BMI dependency on weqeqq.png and
+// weqeqq.avif so it does not leak to consumers of weqeqq.image.io.
+bool HasPngSignature(std::span<const std::uint8_t> data);
+bool HasAvifSignature(std::span<const std::uint8_t> data);
+Buffer DecodePng(std::span<const std::uint8_t> data, Color color);
+Buffer DecodeAvif(std::span<const std::uint8_t> data, Color color);
 
 [[noreturn]] void ThrowUnsupportedFormat(std::size_t input_bytes, Color color) {
   throw error::TypedErrorBuilder(IoError::kDecodeUnsupportedFormat,
@@ -79,34 +82,14 @@ std::vector<std::uint8_t> ReadFile(const std::filesystem::path& filename) {
   return data;
 }
 
-Buffer DecodePng(std::span<const std::uint8_t> data, Color color) {
-  try {
-    auto decoded = png::DecodeImage(data, color);
-    return Buffer(decoded.info.width, decoded.info.height, color,
-                  std::move(decoded.data));
-  } catch (const error::Error& cause) {
-    ThrowDecodeFailed(data.size(), color, cause.what());
-  }
-}
-
-Buffer DecodeAvif(std::span<const std::uint8_t> data, Color color) {
-  try {
-    auto decoded = avif::DecodeImage(data, color);
-    return Buffer(decoded.info.width, decoded.info.height, color,
-                  std::move(decoded.data));
-  } catch (const error::Error& cause) {
-    ThrowDecodeFailed(data.size(), color, cause.what());
-  }
-}
-
 }  // namespace internal
 
 export Buffer Decode(std::span<const std::uint8_t> data,
                      Color color = Color::kRgb) {
-  if (png::HasPngSignature(data)) {
+  if (internal::HasPngSignature(data)) {
     return internal::DecodePng(data, color);
   }
-  if (avif::HasAvifSignature(data)) {
+  if (internal::HasAvifSignature(data)) {
     return internal::DecodeAvif(data, color);
   }
   internal::ThrowUnsupportedFormat(data.size(), color);

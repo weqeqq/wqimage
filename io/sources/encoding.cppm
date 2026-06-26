@@ -12,9 +12,6 @@ export module weqeqq.image.io:encoding;
 import :error;
 export import weqeqq.image;
 
-import weqeqq.png;
-import weqeqq.avif;
-
 export namespace weqeqq::image {
 
 enum class Format {
@@ -27,6 +24,11 @@ enum class Format {
 namespace weqeqq::image {
 
 namespace internal {
+
+// Defined in encoding.cpp, which owns the BMI dependency on weqeqq.png and
+// weqeqq.avif so it does not leak to consumers of weqeqq.image.io.
+std::vector<std::uint8_t> EncodePng(const Buffer& buffer);
+std::vector<std::uint8_t> EncodeAvif(const Buffer& buffer);
 
 [[noreturn]] void ThrowUnsupportedFormat(Format format, const Buffer& buffer) {
   throw error::TypedErrorBuilder(IoError::kEncodeUnsupportedFormat,
@@ -65,24 +67,6 @@ namespace internal {
           "Verify that the buffer metadata and color format are supported by "
           "the selected encoder.")
       .Build();
-}
-
-std::vector<std::uint8_t> EncodePng(const Buffer& buffer) {
-  try {
-    return png::EncodeImage(buffer, buffer.Width(), buffer.Height(),
-                            buffer.Color());
-  } catch (const error::Error& cause) {
-    ThrowEncodeFailed(buffer, cause.what());
-  }
-}
-
-std::vector<std::uint8_t> EncodeAvif(const Buffer& buffer) {
-  try {
-    return avif::EncodeImage(buffer, buffer.Width(), buffer.Height(),
-                             buffer.Color());
-  } catch (const error::Error& cause) {
-    ThrowEncodeFailed(buffer, cause.what());
-  }
 }
 
 [[noreturn]] void ThrowOutputWriteError(const std::filesystem::path& filename,
