@@ -16,7 +16,7 @@ if has_config("io") then
 end
 
 if has_config("processing") then
-	add_files("crop_test.cpp", "adjustments_test.cpp", "blending_test.cpp")
+	add_files("crop_test.cpp", "adjustments_test.cpp", "blending_test.cpp", "resize_test.cpp")
 	add_deps("weqeqq.image.processing")
 end
 

@@ -19,6 +19,10 @@ enum class ProcessingError {
   kAdjustmentContrastOutOfRange,
   kAdjustmentInvalidMode,
   kBlendOpacityOutOfRange,
+  kResizeEmptyInput,
+  kResizeInvalidDimensions,
+  kResizeInvalidFilter,
+  kResizeInvalidScale,
 };
 
 class ProcessingErrorCategory : public std::error_category {
@@ -45,6 +49,14 @@ class ProcessingErrorCategory : public std::error_category {
         return "adjustment mode is invalid";
       case ProcessingError::kBlendOpacityOutOfRange:
         return "blend opacity is out of range";
+      case ProcessingError::kResizeEmptyInput:
+        return "resize input buffer is empty";
+      case ProcessingError::kResizeInvalidDimensions:
+        return "resize target dimensions are invalid";
+      case ProcessingError::kResizeInvalidFilter:
+        return "resize filter is invalid";
+      case ProcessingError::kResizeInvalidScale:
+        return "resize scale factor is invalid";
     }
     return "unknown weqeqq.image.processing error";
   }
